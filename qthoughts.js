@@ -1,11 +1,101 @@
 /**
- * Q-Thoughts Engine v2.0
- * Moteur autonome de navigation cognitive et mémoire latérale.
- * Injecte automatiquement le CSS, le DOM et gère le state interactif.
+ * Q-Thoughts Engine v3.5 (Pure Observer Mode & Gemini AI Co-Pilot)
+ * Dépôt GitHub : https://github.com/lolo0704/Q-thoughts
+ * CDN : https://cdn.jsdelivr.net/gh/lolo0704/Q-thoughts@main/qthoughts.js
  */
 
 (function () {
   'use strict';
+
+  // Sécurisation HTML pour prévenir l'injection XSS (PR-7)
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Générateur d'ID déterministe basé sur le hash du titre (PR-8)
+  function hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  // Re-tentative avec backoff exponentiel pour les API Gemini
+  async function fetchGeminiWithBackoff(url, options, maxRetries = 3) {
+    let delay = 1000;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetch(url, options);
+        if (response.ok) return response;
+        if (response.status === 429 || response.status >= 500) {
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+          continue;
+        }
+        const errText = await response.text();
+        throw new Error(`API error (${response.status}): ${errText}`);
+      } catch (err) {
+        if (i === maxRetries - 1) throw err;
+        await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
+      }
+    }
+  }
+
+  // Conversion PCM16 vers WAV pour le TTS Gemini
+  function pcmToWav(pcmInt16Array, sampleRate = 24000) {
+    const numChannels = 1;
+    const bytesPerSample = 2;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = pcmInt16Array.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    function writeString(offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < pcmInt16Array.length; i++, offset += 2) {
+      view.setInt16(offset, pcmInt16Array[i], true);
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  function base64ToArrayBuffer(base64) {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
 
   const STYLES = `
     :root {
@@ -19,7 +109,7 @@
       --accent-pruned: #a855f7;
       --accent-hypotheses: #f59e0b;
       --accent-objective: #6366f1;
-      --btn-hover: #263346;
+      --accent-gemini: #ec4899;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -60,10 +150,8 @@
     .toolbar-actions {
       display: flex;
       gap: 0.5rem;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       align-items: center;
-      overflow-x: auto;
-      padding-bottom: 0.2rem;
     }
 
     .view-toggle {
@@ -73,7 +161,6 @@
       border-radius: 10px;
       padding: 0.15rem;
       gap: 0.2rem;
-      box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
     }
 
     .action-btn-header {
@@ -98,6 +185,25 @@
       color: #ffffff;
     }
 
+    .action-btn-gemini {
+      background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+      border: 1px solid #f472b6;
+      color: #ffffff;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.775rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 0 12px rgba(236, 72, 153, 0.3);
+      white-space: nowrap;
+    }
+
+    .action-btn-gemini:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 18px rgba(236, 72, 153, 0.5);
+    }
+
     .toggle-btn {
       background: transparent;
       border: none;
@@ -107,53 +213,31 @@
       font-weight: 600;
       border-radius: 7px;
       cursor: pointer;
-      transition: all 0.2s ease;
-      white-space: nowrap;
     }
 
     .toggle-btn.active {
       background-color: #0284c7;
       color: #ffffff;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
     }
 
-    /* BARRE D'OBJECTIF STRATÉGIQUE */
     .objective-banner {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
       border: 1px solid rgba(99, 102, 241, 0.4);
       border-radius: 12px;
       padding: 1rem 1.25rem;
       margin-bottom: 1.25rem;
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1rem;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-      position: relative;
-      cursor: pointer;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .objective-banner:hover {
-      border-color: rgba(99, 102, 241, 0.8);
-      box-shadow: 0 4px 25px rgba(99, 102, 241, 0.2);
     }
 
     .objective-info h2 {
       font-size: 0.95rem;
       font-weight: 700;
       color: var(--accent-objective);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
       margin-bottom: 0.25rem;
     }
 
     .objective-desc {
       font-size: 0.85rem;
       color: var(--text-main);
-      max-width: 800px;
     }
 
     .reactivation-alert-banner {
@@ -167,8 +251,6 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
-      animation: fadeIn 0.3s ease-out;
     }
 
     .reactivation-btn {
@@ -180,16 +262,8 @@
       font-size: 0.75rem;
       font-weight: 700;
       cursor: pointer;
-      transition: background-color 0.15s ease;
-      white-space: nowrap;
     }
 
-    .reactivation-btn:hover {
-      background-color: #d97706;
-      color: #fff;
-    }
-
-    /* GRILLE ET COLONNES COGNITIVES */
     .board {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -218,28 +292,9 @@
     .column-discussed .column-header { border-color: var(--accent-discussed); }
     .column-pruned .column-header { border-color: var(--accent-pruned); }
 
-    .column-title {
-      font-size: 0.875rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .badge {
-      background-color: var(--card-border);
-      color: var(--text-main);
-      font-size: 0.725rem;
-      padding: 0.1rem 0.5rem;
-      border-radius: 9999px;
-      font-weight: 600;
-    }
-
-    .card-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-    }
+    .column-title { font-size: 0.875rem; font-weight: 600; }
+    .badge { background-color: var(--card-border); color: var(--text-main); font-size: 0.725rem; padding: 0.1rem 0.5rem; border-radius: 9999px; }
+    .card-list { display: flex; flex-direction: column; gap: 0.85rem; }
 
     .card {
       background-color: rgba(11, 15, 25, 0.7);
@@ -247,11 +302,6 @@
       border-radius: 8px;
       padding: 0.9rem;
       transition: all 0.2s ease;
-      position: relative;
-    }
-
-    .card:hover {
-      border-color: var(--text-muted);
     }
 
     .card.highlighted {
@@ -259,33 +309,10 @@
       box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
     }
 
-    .card-title {
-      font-size: 0.875rem;
-      font-weight: 600;
-      margin-bottom: 0.4rem;
-      color: var(--text-main);
-      line-height: 1.35;
-    }
-
-    .card-field {
-      font-size: 0.775rem;
-      color: var(--text-muted);
-      margin-bottom: 0.35rem;
-      line-height: 1.4;
-    }
-
-    .card-field strong {
-      color: #cbd5e1;
-      font-weight: 600;
-    }
-
-    .card-relations {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.3rem;
-      margin-top: 0.5rem;
-      margin-bottom: 0.6rem;
-    }
+    .card-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-main); }
+    .card-field { font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.35rem; }
+    .card-field strong { color: #cbd5e1; }
+    .card-relations { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
 
     .relation-tag {
       background-color: rgba(99, 102, 241, 0.15);
@@ -295,168 +322,35 @@
       padding: 0.1rem 0.4rem;
       border-radius: 4px;
       cursor: pointer;
-      transition: all 0.15s ease;
     }
 
-    .relation-tag:hover {
-      background-color: #6366f1;
-      color: #fff;
-    }
+    .relation-tag:hover { background-color: #6366f1; color: #fff; }
 
-    .card-action {
-      width: 100%;
-      background-color: transparent;
-      border: 1px solid var(--card-border);
-      color: var(--text-main);
-      padding: 0.45rem;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.4rem;
-      transition: background-color 0.15s ease, border-color 0.15s ease;
-      margin-top: 0.4rem;
-    }
-
-    .card-action:hover {
-      background-color: var(--btn-hover);
-      border-color: var(--text-muted);
-    }
-
-    .compact-mode .card {
-      padding: 0.6rem 0.85rem;
-      position: relative;
-    }
-
-    .compact-mode .card-field,
-    .compact-mode .card-relations,
-    .compact-mode .card-action {
-      display: none !important;
-    }
-
-    .compact-mode .card-title {
-      margin-bottom: 0;
-      font-size: 0.825rem;
-      cursor: pointer;
-    }
-
-    .column-title-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      cursor: help;
-    }
-
-    .category-tooltip {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      width: 250px;
-      background-color: #0b0f19;
-      border: 1px solid var(--card-border);
-      color: var(--text-muted);
-      font-size: 0.75rem;
-      font-weight: normal;
-      padding: 0.65rem 0.8rem;
-      border-radius: 8px;
-      box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.8);
-      z-index: 100;
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(-4px);
-      transition: all 0.2s ease;
-      pointer-events: none;
-      line-height: 1.4;
-    }
-
-    .column-title-wrap:hover .category-tooltip {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0);
-    }
-
-    .card-hover-detail {
-      display: none;
-    }
-
-    .card-hover-detail-title {
-      font-size: 0.675rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--accent-todiscuss);
-      margin-bottom: 0.35rem;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-    }
-
-    .column-hypotheses .card-hover-detail-title { color: var(--accent-hypotheses); }
-    .column-discussed .card-hover-detail-title { color: var(--accent-discussed); }
-    .column-pruned .card-hover-detail-title { color: var(--accent-pruned); }
-
-    .compact-mode .card:hover .card-hover-detail {
-      display: block;
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 12px;
-      width: calc(100% + 16px);
-      min-width: 250px;
-      background-color: #070a12;
-      border: 1px solid var(--accent-todiscuss);
-      color: var(--text-main);
-      border-radius: 8px;
-      padding: 0.85rem;
-      box-shadow: 0 16px 32px -4px rgba(0, 0, 0, 0.9), 0 0 12px rgba(56, 189, 248, 0.2);
-      z-index: 999;
-      font-size: 0.775rem;
-      line-height: 1.45;
-      animation: fadeIn 0.15s ease-out;
-      pointer-events: none;
-    }
-
-    .compact-mode .column-hypotheses .card:hover .card-hover-detail {
-      border-color: var(--accent-hypotheses);
-      box-shadow: 0 16px 32px -4px rgba(0, 0, 0, 0.9), 0 0 12px rgba(245, 158, 11, 0.2);
-    }
-
-    .compact-mode .column-discussed .card:hover .card-hover-detail {
-      border-color: var(--accent-discussed);
-      box-shadow: 0 16px 32px -4px rgba(0, 0, 0, 0.9), 0 0 12px rgba(34, 197, 94, 0.2);
-    }
-
-    .compact-mode .column-pruned .card:hover .card-hover-detail {
-      border-color: var(--accent-pruned);
-      box-shadow: 0 16px 32px -4px rgba(0, 0, 0, 0.9), 0 0 12px rgba(168, 85, 247, 0.2);
-    }
+    .compact-mode .card { padding: 0.6rem 0.85rem; }
+    .compact-mode .card-field, .compact-mode .card-relations { display: none !important; }
 
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background-color: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(4px);
+      background-color: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(5px);
       display: none;
       align-items: center;
       justify-content: center;
       z-index: 1000;
-      animation: fadeIn 0.15s ease-out;
     }
 
-    .modal-overlay.active {
-      display: flex;
-    }
+    .modal-overlay.active { display: flex; }
 
     .modal-card {
       background-color: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 12px;
       padding: 1.5rem;
-      max-width: 520px;
-      width: 90%;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+      max-width: 600px;
+      width: 92%;
+      max-height: 90vh;
+      overflow-y: auto;
     }
 
     .modal-textarea {
@@ -469,44 +363,12 @@
       padding: 0.75rem;
       font-family: monospace;
       font-size: 0.775rem;
-      resize: vertical;
       margin-bottom: 1rem;
     }
 
-    .modal-textarea:focus {
-      outline: none;
-      border-color: var(--accent-todiscuss);
-    }
-
-    .modal-title {
-      font-size: 1.1rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
-      color: var(--text-main);
-    }
-
-    .modal-desc {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      margin-bottom: 1.25rem;
-    }
-
-    .modal-item-preview {
-      background-color: rgba(11, 15, 25, 0.8);
-      border: 1px solid var(--card-border);
-      padding: 0.75rem;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 0.85rem;
-      margin-bottom: 1.25rem;
-      color: var(--accent-todiscuss);
-    }
-
-    .modal-buttons {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
+    .modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .modal-desc { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; }
+    .modal-buttons { display: flex; flex-direction: column; gap: 0.5rem; }
 
     .modal-btn {
       padding: 0.6rem 1rem;
@@ -515,38 +377,25 @@
       font-size: 0.825rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease;
       text-align: center;
+      transition: all 0.2s ease;
     }
 
-    .modal-btn-primary {
-      background-color: #0284c7;
-      color: #fff;
-      border-color: #0369a1;
+    .modal-btn-primary { background-color: #0284c7; color: #fff; border-color: #0369a1; }
+    .modal-btn-gemini { background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%); color: #fff; border: none; }
+    .modal-btn-cancel { background: transparent; border-color: transparent; color: var(--text-muted); }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border-left-color: #ec4899;
+      animation: spin 1s linear infinite;
+      display: inline-block;
     }
 
-    .modal-btn-primary:hover {
-      background-color: #0369a1;
-    }
-
-    .modal-btn-secondary {
-      background-color: rgba(255, 255, 255, 0.05);
-      color: var(--text-main);
-    }
-
-    .modal-btn-secondary:hover {
-      background-color: var(--card-border);
-    }
-
-    .modal-btn-cancel {
-      background: transparent;
-      border-color: transparent;
-      color: var(--text-muted);
-    }
-
-    .modal-btn-cancel:hover {
-      color: var(--text-main);
-    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
     .toast {
       position: fixed;
@@ -557,17 +406,8 @@
       font-weight: 600;
       padding: 0.75rem 1.25rem;
       border-radius: 8px;
-      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4);
       display: none;
-      align-items: center;
-      gap: 0.5rem;
-      animation: fadeIn 0.2s ease-in-out;
       z-index: 1100;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
     }
   `;
 
@@ -582,14 +422,14 @@
       <header>
         <div class="header-title-zone">
           <h1>🧠 Q-Thoughts</h1>
-          <p class="subtitle">Mémoire latérale du raisonnement & navigation cognitive</p>
+          <p class="subtitle">Mémoire latérale du raisonnement & Intelligence Gemini</p>
         </div>
-        
         <div class="toolbar-actions">
+          <button class="action-btn-gemini" id="btn-open-gemini">✨ Gemini Co-Pilot</button>
+          <button class="action-btn-gemini" id="btn-open-chat" style="background: linear-gradient(135deg, #0284c7 0%, #6366f1 100%); box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);">💬 Chat Direct IA</button>
           <button class="action-btn-header" id="btn-open-summary">📝 Synthèse</button>
           <button class="action-btn-header" id="btn-export-json">📤 Exporter JSON</button>
           <button class="action-btn-header" id="btn-open-import">📥 Importer JSON</button>
-
           <div class="view-toggle">
             <button id="btn-expanded" class="toggle-btn active">📖 Vue Dépliée</button>
             <button id="btn-compact" class="toggle-btn">⚡ Vue Compacte</button>
@@ -597,74 +437,142 @@
         </div>
       </header>
 
-      <div class="objective-banner" id="objective-banner" title="Cliquer pour modifier l'objectif">
+      <div class="objective-banner" id="objective-banner">
         <div class="objective-info">
           <h2 id="obj-title">🎯 Objectif : Cadrage de Q-Thoughts</h2>
-          <p class="objective-desc" id="obj-desc">Développer une interface autonome de navigation cognitive...</p>
+          <p class="objective-desc" id="obj-desc"></p>
         </div>
       </div>
 
       <div id="reactivation-alert" class="reactivation-alert-banner" style="display: none;">
-        <span>⚠️ <strong>Réactivation potentielle :</strong> <span id="reactivation-count">0</span> piste(s) précédemment abandonnée(s) redeviennent pertinente(s).</span>
+        <span>⚠️ <strong>Réactivation potentielle :</strong> <span id="reactivation-count">0</span> piste(s) pertinente(s).</span>
         <button class="reactivation-btn" id="btn-filter-reactivations">Examiner la piste</button>
       </div>
 
       <main class="board" id="app"></main>
 
-      <!-- MODALES -->
-      <div id="objective-modal" class="modal-overlay">
-        <div class="modal-card">
-          <h3 class="modal-title">🎯 Objectif courant du raisonnement</h3>
-          <p class="modal-desc">Modifiez ou précisez la cible stratégique de cette session :</p>
-          <input type="text" id="input-obj-title" class="modal-textarea" style="height: 40px; font-weight: bold; margin-bottom: 0.5rem;" placeholder="Titre de l'objectif...">
-          <textarea id="input-obj-desc" class="modal-textarea" placeholder="Description détaillée du problème à résoudre..."></textarea>
+      <!-- Modale Gemini Co-Pilot -->
+      <div id="gemini-modal" class="modal-overlay">
+        <div class="modal-card" style="max-width: 680px;">
+          <h3 class="modal-title" style="color: #f472b6;">✨ Co-Pilote Cognitif Gemini</h3>
+          <p class="modal-desc">Fonctionnalités IA avancées exécutées directement sur la mémoire de travail :</p>
+          
+          <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.25rem;">
+            
+            <!-- Action 1: Transcription -->
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); padding: 1rem; border-radius: 8px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.4rem;">1. 📝 Analyser une transcription / note brute</h4>
+              <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">Collez du texte pour que Gemini 3 Flash structure automatiquement les hypothèses et arbitrages.</p>
+              <textarea id="gemini-transcript-input" class="modal-textarea" style="height: 70px;" placeholder="Collez votre extrait de conversation ou vos notes ici..."></textarea>
+              <button class="modal-btn modal-btn-gemini" id="btn-gemini-parse-transcript" style="width: 100%;">⚡ Structurer avec Gemini 3 Flash</button>
+            </div>
+
+            <!-- Action 2: Audit d'angles morts -->
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); padding: 1rem; border-radius: 8px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #f59e0b; margin-bottom: 0.4rem;">2. 🔍 Audit des Biais Cognitifs & Angles Morts</h4>
+              <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">Gemini analyse vos hypothèses pour déceler les risques non identifiés.</p>
+              <button class="modal-btn modal-btn-primary" id="btn-gemini-audit" style="width: 100%; background: #d97706; border-color: #f59e0b;">🔎 Lancer l'Audit d'Angles Morts</button>
+            </div>
+
+            <!-- Action 3: Recherche Web Ancrée -->
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); padding: 1rem; border-radius: 8px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.4rem;">3. 🌐 Recherche Web Ancrée (Google Search Grounding)</h4>
+              <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">Interrogez le web en temps réel pour nourrir votre réflexion.</p>
+              <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="gemini-search-query" style="flex: 1; background: #0b0f19; border: 1px solid var(--card-border); color: #fff; padding: 0.5rem; border-radius: 6px; font-size: 0.775rem;" placeholder="Sujet à rechercher sur le web...">
+                <button class="modal-btn modal-btn-primary" id="btn-gemini-web-search">🌐 Rechercher</button>
+              </div>
+              <div id="gemini-search-sources" style="font-size: 0.725rem; color: #94a3b8; margin-top: 0.5rem; display: none;"></div>
+            </div>
+
+            <!-- Action 4: Vision Multimodale -->
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); padding: 1rem; border-radius: 8px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #ec4899; margin-bottom: 0.4rem;">4. 📷 Analyse Multimodale (Photo / Tableau Blanc)</h4>
+              <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">Importez la photo d'un tableau blanc ou d'un schéma manuscrit.</p>
+              <input type="file" id="gemini-image-input" accept="image/*" style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+              <button class="modal-btn modal-btn-gemini" id="btn-gemini-analyze-image" style="width: 100%;">👁️ Extraire les cartes depuis l'image</button>
+            </div>
+
+            <!-- Action 5: Synthèse vocale TTS -->
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); padding: 1rem; border-radius: 8px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #22c55e; margin-bottom: 0.4rem;">5. 🎙️ Briefing Audio Stratégique (TTS Gemini)</h4>
+              <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">Écoutez un résumé vocal dynamique généré par Gemini TTS.</p>
+              <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <select id="gemini-voice-select" style="background: #0b0f19; border: 1px solid var(--card-border); color: #fff; padding: 0.35rem; border-radius: 6px; font-size: 0.775rem; flex: 1;">
+                  <option value="Aoede">Voix : Aoede (Breezy)</option>
+                  <option value="Puck">Voix : Puck (Upbeat)</option>
+                  <option value="Zephyr">Voix : Zephyr (Bright)</option>
+                  <option value="Kore">Voix : Kore (Firm)</option>
+                  <option value="Fenrir">Voix : Fenrir (Excitable)</option>
+                </select>
+                <button class="modal-btn modal-btn-primary" id="btn-gemini-tts">🎧 Générer l'audio</button>
+              </div>
+              <audio id="gemini-audio-player" controls style="width: 100%; display: none; margin-top: 0.5rem; height: 36px;"></audio>
+            </div>
+
+            <!-- Action 6: Schéma visuel Imagen 4 -->
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid var(--card-border); padding: 1rem; border-radius: 8px;">
+              <h4 style="font-size: 0.875rem; font-weight: 700; color: #a855f7; margin-bottom: 0.4rem;">6. 🎨 Cartographie Visuelle (Imagen 4.0)</h4>
+              <p style="font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.5rem;">Générez une infographie visuelle résumant l'état de la session.</p>
+              <button class="modal-btn modal-btn-gemini" id="btn-gemini-generate-image" style="width: 100%;">🖼️ Générer le schéma visuel</button>
+              <div id="gemini-image-container" style="margin-top: 0.75rem; text-align: center; display: none;">
+                <img id="gemini-generated-image" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--card-border);" alt="Carte visuelle" />
+              </div>
+            </div>
+
+          </div>
+
+          <div id="gemini-loading" style="display: none; text-align: center; padding: 1rem; color: #f472b6; font-weight: 600;">
+            <span class="spinner"></span> <span id="gemini-loading-text">Traitement par les API Gemini...</span>
+          </div>
+
           <div class="modal-buttons">
-            <button class="modal-btn modal-btn-primary" id="btn-save-objective">💾 Sauvegarder l'objectif</button>
-            <button class="modal-btn modal-btn-cancel" data-close="objective-modal">Fermer</button>
+            <button class="modal-btn modal-btn-cancel" data-close="gemini-modal">Fermer</button>
           </div>
         </div>
       </div>
 
-      <div id="validation-modal" class="modal-overlay">
-        <div class="modal-card">
-          <h3 class="modal-title">Validation et conservation du choix</h3>
-          <p class="modal-desc">Voulez-vous valider et transférer cet élément vers <strong>Points discutés et conservés</strong> ?</p>
-          <div id="modal-item-title" class="modal-item-preview">Titre de l'élément</div>
-          <div class="modal-buttons">
-            <button class="modal-btn modal-btn-primary" id="btn-confirm-val-prompt">
-              📋 Conserver + Copier la mise à jour cognitive
-            </button>
-            <button class="modal-btn modal-btn-secondary" id="btn-confirm-val-silent">
-              ✅ Conserver silencieusement
-            </button>
-            <button class="modal-btn modal-btn-cancel" data-close="validation-modal">
-              Annuler
-            </button>
+      <!-- Chat In-App Gemini Direct -->
+      <div id="chat-modal" class="modal-overlay">
+        <div class="modal-card" style="max-width: 650px; height: 85vh; display: flex; flex-direction: column;">
+          <h3 class="modal-title" style="color: #38bdf8;">💬 Discussion Directe avec Gemini Co-Pilot</h3>
+          <p class="modal-desc" style="margin-bottom: 0.5rem;">Vos instructions mettent à jour dynamiquement la mémoire Q-Thoughts :</p>
+          
+          <div id="chat-messages" style="flex: 1; overflow-y: auto; background: rgba(11, 15, 25, 0.9); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="background: #1e293b; padding: 0.5rem 0.75rem; border-radius: 6px; color: #94a3b8;">
+              🤖 <strong>Gemini :</strong> Bonjour ! Je suis connecté à votre mémoire Q-Thoughts.
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="chat-user-input" style="flex: 1; background: #0b0f19; border: 1px solid var(--card-border); color: #fff; padding: 0.6rem; border-radius: 6px; font-size: 0.8rem;" placeholder="Discuter ou donner une instruction à Gemini..." />
+            <button class="modal-btn modal-btn-primary" id="btn-send-chat">Envoyer</button>
+          </div>
+          
+          <div style="margin-top: 0.75rem; text-align: right;">
+            <button class="modal-btn modal-btn-cancel" data-close="chat-modal">Fermer</button>
           </div>
         </div>
       </div>
 
+      <!-- Modale Synthèse -->
       <div id="summary-modal" class="modal-overlay">
         <div class="modal-card">
           <h3 class="modal-title">📝 Synthèse stratégique de la session</h3>
-          <p class="modal-desc">Vue d'ensemble haute-altitude (Objectif, Arbitrages, Cap) :</p>
-          <div id="summary-content" class="modal-item-preview" style="white-space: pre-line; color: var(--text-main); background-color: rgba(11, 15, 25, 0.9); font-weight: normal; line-height: 1.6; max-height: 280px; overflow-y: auto;">
-          </div>
+          <p class="modal-desc">Vue d'ensemble haute-altitude :</p>
+          <div id="summary-content" style="white-space: pre-line; color: var(--text-main); background: rgba(11, 15, 25, 0.9); padding: 0.85rem; border-radius: 6px; font-size: 0.8rem; margin-bottom: 1rem; border: 1px solid var(--card-border); max-height: 280px; overflow-y: auto;"></div>
           <div class="modal-buttons">
-            <button class="modal-btn modal-btn-primary" id="btn-copy-summary">
-              📋 Copier la synthèse (3 Piliers)
-            </button>
-            <button class="modal-btn modal-btn-cancel" data-close="summary-modal">
-              Fermer
-            </button>
+            <button class="modal-btn modal-btn-primary" id="btn-copy-summary">📋 Copier la synthèse</button>
+            <button class="modal-btn modal-btn-cancel" data-close="summary-modal">Fermer</button>
           </div>
         </div>
       </div>
 
+      <!-- Modale Import -->
       <div id="import-modal" class="modal-overlay">
         <div class="modal-card">
           <h3 class="modal-title">📥 Importer une mémoire Q-Thoughts</h3>
-          <p class="modal-desc">Collez un JSON d'exportation pour restaurer l'état exact du raisonnement :</p>
+          <p class="modal-desc">Collez un JSON d'exportation pour restaurer l'état exact :</p>
 
           <div id="import-step-input">
             <textarea id="import-json-textarea" class="modal-textarea" placeholder="Collez le contenu JSON ici..."></textarea>
@@ -673,12 +581,8 @@
               <input type="file" id="import-file-input" accept=".json" style="font-size: 0.8rem; color: var(--text-muted);">
             </div>
             <div class="modal-buttons">
-              <button class="modal-btn modal-btn-primary" id="btn-process-import">
-                ⚡ Restaurer la mémoire vive
-              </button>
-              <button class="modal-btn modal-btn-cancel" data-close="import-modal">
-                Annuler
-              </button>
+              <button class="modal-btn modal-btn-primary" id="btn-process-import">⚡ Restaurer la mémoire vive</button>
+              <button class="modal-btn modal-btn-cancel" data-close="import-modal">Annuler</button>
             </div>
           </div>
 
@@ -686,12 +590,8 @@
             <p class="modal-desc" style="color: var(--accent-discussed);">✓ Mémoire chargée avec succès ! Copiez le prompt de réalignement ci-dessous :</p>
             <textarea id="import-sync-prompt" class="modal-textarea" readonly></textarea>
             <div class="modal-buttons">
-              <button class="modal-btn modal-btn-primary" id="btn-copy-sync-prompt">
-                📋 Copier le prompt de synchro (Ctrl+V)
-              </button>
-              <button class="modal-btn modal-btn-cancel" data-close="import-modal">
-                Fermer
-              </button>
+              <button class="modal-btn modal-btn-primary" id="btn-copy-sync-prompt">📋 Copier le prompt de synchro</button>
+              <button class="modal-btn modal-btn-cancel" data-close="import-modal">Fermer</button>
             </div>
           </div>
         </div>
@@ -701,34 +601,23 @@
     `;
   }
 
-  let currentViewMode = 'expanded';
-  let activeCardId = null;
-
-  /**
-   * Couche de normalisation défensive (RETEX Data Format)
-   * Prévient tout plantage IHM, génère les IDs manquants et tolère les synonymes du LLM.
-   */
   function normalizeQThoughtsData(raw) {
     const src = raw || {};
-
     const cleanCard = (card, defaultPrefix) => {
       if (!card || typeof card !== 'object') return null;
+      const rawTitle = String(card.title || card.name || 'Sans titre');
+      const fallbackId = defaultPrefix + '_' + hashString(rawTitle);
       return {
-        id: String(card.id || (defaultPrefix + '_' + Math.random().toString(36).substring(2, 7))),
-        title: String(card.title || card.name || 'Sans titre'),
-        reason: String(card.reason || card.why || card.justification || ''),
+        id: String(card.id || fallbackId),
+        title: rawTitle,
+        reason: String(card.reason || card.why || ''),
         consequence: String(card.consequence || card.impact || ''),
-        condition: String(card.condition || card.reactivation_condition || card.when || ''),
-        related_to: Array.isArray(card.related_to) 
-          ? card.related_to.map(String) 
-          : (card.related_to ? [String(card.related_to)] : [])
+        condition: String(card.condition || card.reactivation_condition || ''),
+        related_to: Array.isArray(card.related_to) ? card.related_to.map(String) : []
       };
     };
 
-    const cleanList = (arr, prefix) => {
-      if (!Array.isArray(arr)) return [];
-      return arr.map(c => cleanCard(c, prefix)).filter(Boolean);
-    };
+    const cleanList = (arr, prefix) => Array.isArray(arr) ? arr.map(c => cleanCard(c, prefix)).filter(Boolean) : [];
 
     return {
       objective: {
@@ -736,117 +625,419 @@
         description: String(src.objective?.description || '')
       },
       summary: String(src.summary || ''),
-      hypotheses: cleanList(src.hypotheses || src.principles || src.assumptions, 'hyp'),
+      hypotheses: cleanList(src.hypotheses || src.principles, 'hyp'),
       toDiscuss: cleanList(src.toDiscuss || src.open_questions, 'td'),
       discussed: cleanList(src.discussed || src.conserved, 'dis'),
       pruned: cleanList(src.pruned || src.abandoned, 'pr'),
-      pending_reactivations: Array.isArray(src.pending_reactivations) 
-        ? src.pending_reactivations.map(String) 
-        : []
+      pending_reactivations: Array.isArray(src.pending_reactivations) ? src.pending_reactivations.map(String) : []
     };
   }
 
-  const DEFAULT_DATA = {
-    objective: {
-      title: "Navigation Cognitive Q-Thoughts",
-      description: "Préservation active de l'état du raisonnement et réactivation des idées."
-    },
-    pending_reactivations: [],
-    summary: "🎯 OBJECTIF : Initialiser la mémoire de session.",
-    hypotheses: [],
-    toDiscuss: [],
-    discussed: [],
-    pruned: []
-  };
+  let QTHOUGHTS_DATA = normalizeQThoughtsData(window.QTHOUGHTS_DATA);
+  let currentViewMode = 'expanded';
 
-  let QTHOUGHTS_DATA = normalizeQThoughtsData(window.QTHOUGHTS_DATA || DEFAULT_DATA);
-
-  function setViewMode(mode) {
-    currentViewMode = mode;
-    const boardElement = document.getElementById('app');
-    
-    document.getElementById('btn-expanded').classList.toggle('active', mode === 'expanded');
-    document.getElementById('btn-compact').classList.toggle('active', mode === 'compact');
-
-    if (mode === 'compact') {
-      boardElement.classList.add('compact-mode');
-    } else {
-      boardElement.classList.remove('compact-mode');
-    }
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 2500);
   }
 
-  function openModal(id) { document.getElementById(id).classList.add('active'); }
-  function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-
-  function showToast(message) {
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.style.display = 'flex';
-    setTimeout(() => { toast.style.display = 'none'; }, 2500);
-  }
-
-  window.openValidationModal = function(cardId) {
-    activeCardId = cardId;
-    const item = QTHOUGHTS_DATA.toDiscuss.find(i => i.id === cardId);
-    if (!item) return;
-
-    document.getElementById('modal-item-title').textContent = item.title;
-    openModal('validation-modal');
-  };
-
-  function confirmValidation(copyWithPrompt) {
-    if (!activeCardId) return;
-
-    const index = QTHOUGHTS_DATA.toDiscuss.findIndex(i => i.id === activeCardId);
-    if (index !== -1) {
-      const [movedItem] = QTHOUGHTS_DATA.toDiscuss.splice(index, 1);
-      movedItem.status = "conserved";
-      QTHOUGHTS_DATA.discussed.unshift(movedItem);
-
-      const syncPrompt = `Nous venons de valider et conserver la décision suivante : "${movedItem.title}".\nMotif : ${movedItem.reason || "Validation lors de nos échanges"}.\nMerci de mettre à jour ton état interne.`;
-
-      if (copyWithPrompt) {
-        navigator.clipboard.writeText(syncPrompt).then(() => {
-          showToast("✓ Conservé + Prompt de synchro copié !");
-        });
-      } else {
-        showToast("✓ Conservé dans la mémoire !");
-      }
-    }
-
-    closeModal('validation-modal');
-    renderBoard();
-  }
-
-  window.moveToDiscuss = function(cardId, fromCategory) {
-    let sourceList = fromCategory === 'pruned' ? QTHOUGHTS_DATA.pruned : QTHOUGHTS_DATA.discussed;
-    const index = sourceList.findIndex(i => i.id === cardId);
-    
-    if (index !== -1) {
-      const [movedItem] = sourceList.splice(index, 1);
-      movedItem.status = "open";
-      QTHOUGHTS_DATA.toDiscuss.unshift(movedItem);
-      
-      const promptText = `Réactivons dans "Points à discuter" l'élément suivant : "${movedItem.title}".\nReprenons la réflexion sur ce point.`;
-      navigator.clipboard.writeText(promptText).then(() => {
-        showToast("📌 Remis à discuter + Prompt copié !");
-      });
-
-      renderBoard();
-    }
-  };
-
-  window.highlightRelation = function(relId) {
+  function highlightRelation(relId) {
     document.querySelectorAll('.card').forEach(c => c.classList.remove('highlighted'));
     const targetCard = document.getElementById(`card-${relId}`);
     if (targetCard) {
       targetCard.classList.add('highlighted');
       targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      showToast(`🔗 Lien vers la pensée #${relId}`);
+      showToast(`🔗 Lien vers #${relId}`);
     } else {
-      showToast(`⚠️ Pensée #${relId} introuvable ou déplacée`);
+      showToast(`⚠️ Pensée #${relId} introuvable`);
     }
-  };
+  }
+
+  async function runGeminiParseTranscript(transcript) {
+    const loader = document.getElementById('gemini-loading');
+    const loaderText = document.getElementById('gemini-loading-text');
+    loaderText.textContent = 'Analyse de la transcription par Gemini 3 Flash...';
+    loader.style.display = 'block';
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const systemPrompt = `Tu es le moteur cognitif Q-Thoughts. Analyse le texte fourni et met à jour la mémoire latérale au format JSON exact. Conserve les identifiants existants si pertinents.`;
+      const promptText = `Voici l'état actuel de Q-Thoughts :\n${JSON.stringify(QTHOUGHTS_DATA, null, 2)}\n\nVoici le nouveau texte/notes à incorporer :\n${transcript}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { responseMimeType: "application/json" }
+      };
+
+      const res = await fetchGeminiWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const jsonRes = await res.json();
+      const jsonText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const parsed = JSON.parse(jsonText);
+        QTHOUGHTS_DATA = normalizeQThoughtsData(parsed);
+        window.QTHOUGHTS_DATA = QTHOUGHTS_DATA;
+        renderBoard();
+        showToast("✨ Mémoire mise à jour par Gemini !");
+        document.getElementById('gemini-modal').classList.remove('active');
+      }
+    } catch (err) {
+      showToast("⚠️ Erreur Gemini: " + err.message);
+    } finally {
+      loader.style.display = 'none';
+    }
+  }
+
+  async function runGeminiAudit() {
+    const loader = document.getElementById('gemini-loading');
+    const loaderText = document.getElementById('gemini-loading-text');
+    loaderText.textContent = 'Analyse des angles morts & biais cognitifs...';
+    loader.style.display = 'block';
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const promptText = `Examine l'état de Q-Thoughts. Détecte les biais cognitifs ou questions ouvertes oubliées. Mets à jour Q-Thoughts en ajoutant 1 ou 2 questions dans "toDiscuss" et au moins une nouvelle "hypotheses".
+
+État actuel :
+${JSON.stringify(QTHOUGHTS_DATA, null, 2)}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      };
+
+      const res = await fetchGeminiWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const jsonRes = await res.json();
+      const jsonText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const parsed = JSON.parse(jsonText);
+        QTHOUGHTS_DATA = normalizeQThoughtsData(parsed);
+        window.QTHOUGHTS_DATA = QTHOUGHTS_DATA;
+        renderBoard();
+        showToast("🔎 Audit terminé : Angles morts ajoutés !");
+        document.getElementById('gemini-modal').classList.remove('active');
+      }
+    } catch (err) {
+      showToast("⚠️ Erreur Audit: " + err.message);
+    } finally {
+      loader.style.display = 'none';
+    }
+  }
+
+  async function runGeminiWebSearch(query) {
+    const loader = document.getElementById('gemini-loading');
+    const loaderText = document.getElementById('gemini-loading-text');
+    const sourcesDiv = document.getElementById('gemini-search-sources');
+    loaderText.textContent = `Recherche Google pour : "${query}"...`;
+    loader.style.display = 'block';
+    sourcesDiv.style.display = 'none';
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: `Recherche sur "${query}". Résume les faits et propose une carte "toDiscuss".` }] }],
+        tools: [{ "google_search": {} }]
+      };
+
+      const res = await fetchGeminiWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await res.json();
+      const candidate = result.candidates?.[0];
+      const text = candidate?.content?.parts?.[0]?.text || "";
+
+      let sources = [];
+      const groundingMetadata = candidate?.groundingMetadata;
+      if (groundingMetadata && groundingMetadata.groundingAttributions) {
+        sources = groundingMetadata.groundingAttributions
+          .map(a => ({ uri: a.web?.uri, title: a.web?.title }))
+          .filter(s => s.uri && s.title);
+      }
+
+      if (text) {
+        const searchCard = {
+          id: 'td_search_' + hashString(query),
+          title: `🌐 Recherche : ${query}`,
+          reason: text.slice(0, 200) + '...',
+          consequence: 'Données ancrées via Google Search',
+          related_to: []
+        };
+        QTHOUGHTS_DATA.toDiscuss.unshift(searchCard);
+        renderBoard();
+
+        if (sources.length > 0) {
+          sourcesDiv.innerHTML = '<strong>Sources Google :</strong><br>' + 
+            sources.map(s => `<a href="${escapeHtml(s.uri)}" target="_blank" style="color: #38bdf8; text-decoration: underline;">${escapeHtml(s.title)}</a>`).join('<br>');
+          sourcesDiv.style.display = 'block';
+        }
+        showToast("🌐 Recherche Web ancrée ajoutée !");
+      }
+    } catch (err) {
+      showToast("⚠️ Erreur Recherche Web: " + err.message);
+    } finally {
+      loader.style.display = 'none';
+    }
+  }
+
+  async function runGeminiImageAnalyze(file) {
+    const loader = document.getElementById('gemini-loading');
+    const loaderText = document.getElementById('gemini-loading-text');
+    loaderText.textContent = 'Analyse vision de l\'image...';
+    loader.style.display = 'block';
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64Data = e.target.result.split(',')[1];
+        const mimeType = file.type || 'image/png';
+
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+        const payload = {
+          contents: [{
+            role: "user",
+            parts: [
+              { text: `Analyse cette image. Extraie la structure cognitive au format JSON de QTHOUGHTS_DATA.` },
+              { inlineData: { mimeType: mimeType, data: base64Data } }
+            ]
+          }],
+          generationConfig: { responseMimeType: "application/json" }
+        };
+
+        const res = await fetchGeminiWithBackoff(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const jsonRes = await res.json();
+        const jsonText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (jsonText) {
+          const parsed = JSON.parse(jsonText);
+          QTHOUGHTS_DATA = normalizeQThoughtsData(parsed);
+          window.QTHOUGHTS_DATA = QTHOUGHTS_DATA;
+          renderBoard();
+          showToast("📷 Analyse d'image terminée !");
+          document.getElementById('gemini-modal').classList.remove('active');
+        }
+        loader.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      showToast("⚠️ Erreur Vision: " + err.message);
+      loader.style.display = 'none';
+    }
+  }
+
+  async function runGeminiTTS() {
+    const loader = document.getElementById('gemini-loading');
+    const loaderText = document.getElementById('gemini-loading-text');
+    const voice = document.getElementById('gemini-voice-select').value;
+    loaderText.textContent = `Génération audio avec ${voice}...`;
+    loader.style.display = 'block';
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+      const textToSay = `Briefing stratégique. Objectif: ${QTHOUGHTS_DATA.objective?.title}. ${QTHOUGHTS_DATA.summary}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: textToSay }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+        }
+      };
+
+      const res = await fetchGeminiWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const jsonRes = await res.json();
+      const part = jsonRes.candidates?.[0]?.content?.parts?.[0];
+      const base64Data = part?.inlineData?.data;
+      const mimeType = part?.inlineData?.mimeType || "audio/L16;rate=24000";
+
+      if (base64Data) {
+        const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+        const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1], 10) : 24000;
+        const arrayBuffer = base64ToArrayBuffer(base64Data);
+        const pcm16 = new Int16Array(arrayBuffer);
+        const wavBlob = pcmToWav(pcm16, sampleRate);
+        const audioUrl = URL.createObjectURL(wavBlob);
+
+        const player = document.getElementById('gemini-audio-player');
+        player.src = audioUrl;
+        player.style.display = 'block';
+        player.play();
+        showToast("🎙️ Briefing audio généré !");
+      }
+    } catch (err) {
+      showToast("⚠️ Erreur TTS: " + err.message);
+    } finally {
+      loader.style.display = 'none';
+    }
+  }
+
+  async function runGeminiGenerateImage() {
+    const loader = document.getElementById('gemini-loading');
+    const loaderText = document.getElementById('gemini-loading-text');
+    loaderText.textContent = 'Génération du schéma visuel (Imagen 4)...';
+    loader.style.display = 'block';
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+      const promptText = `Modern futuristic 3d diagram infographic for goal: "${QTHOUGHTS_DATA.objective?.title}". Dark navy background, neon cyan and purple accents.`;
+
+      const payload = {
+        instances: [{ prompt: promptText }],
+        parameters: { sampleCount: 1 }
+      };
+
+      const res = await fetchGeminiWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const jsonRes = await res.json();
+      const base64Image = jsonRes.predictions?.[0]?.bytesBase64Encoded;
+      if (base64Image) {
+        const imgEl = document.getElementById('gemini-generated-image');
+        imgEl.src = `data:image/png;base64,${base64Image}`;
+        document.getElementById('gemini-image-container').style.display = 'block';
+        showToast("🎨 Schéma visuel généré !");
+      }
+    } catch (err) {
+      showToast("⚠️ Erreur Image: " + err.message);
+    } finally {
+      loader.style.display = 'none';
+    }
+  }
+
+  async function sendGeminiChatMessage(userMsg) {
+    const chatBox = document.getElementById('chat-messages');
+    chatBox.innerHTML += `<div style="background: #0284c7; padding: 0.5rem 0.75rem; border-radius: 6px; color: #fff; align-self: flex-end;">👤 <strong>Vous :</strong> ${escapeHtml(userMsg)}</div>`;
+    
+    const loadingDiv = document.createElement('div');
+    loadingDiv.style.cssText = 'background: #1e293b; padding: 0.5rem 0.75rem; border-radius: 6px; color: #f472b6;';
+    loadingDiv.innerHTML = '🤖 <strong>Gemini :</strong> <span class="spinner" style="width: 14px; height: 14px;"></span> Réflexion...';
+    chatBox.appendChild(loadingDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+      const promptText = `Tu es le co-pilote cognitif Q-Thoughts. Réponds à l'utilisateur ET met à jour QTHOUGHTS_DATA.
+Réponds au format JSON avec "reply" et "qthoughts".
+
+Message utilisateur : "${userMsg}"
+État actuel QTHOUGHTS_DATA :
+${JSON.stringify(QTHOUGHTS_DATA, null, 2)}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      };
+
+      const res = await fetchGeminiWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const jsonRes = await res.json();
+      const jsonText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const parsed = JSON.parse(jsonText);
+        loadingDiv.innerHTML = `🤖 <strong>Gemini :</strong> ${escapeHtml(parsed.reply || "Mémoire mise à jour.")}`;
+        if (parsed.qthoughts) {
+          QTHOUGHTS_DATA = normalizeQThoughtsData(parsed.qthoughts);
+          window.QTHOUGHTS_DATA = QTHOUGHTS_DATA;
+          renderBoard();
+          showToast("✨ Mémoire Q-Thoughts mise à jour via le Chat !");
+        }
+      }
+    } catch (err) {
+      loadingDiv.innerHTML = `⚠️ <strong>Erreur :</strong> ${escapeHtml(err.message)}`;
+    }
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function renderBoard() {
+    document.getElementById('obj-title').innerHTML = "🎯 Objectif : " + escapeHtml(QTHOUGHTS_DATA.objective?.title || "");
+    document.getElementById('obj-desc').textContent = QTHOUGHTS_DATA.objective?.description || "";
+
+    const pending = QTHOUGHTS_DATA.pending_reactivations || [];
+    document.getElementById('reactivation-alert').style.display = pending.length > 0 ? 'flex' : 'none';
+    document.getElementById('reactivation-count').textContent = pending.length;
+
+    const renderCardList = (list, colType) => {
+      return (list || []).map(item => `
+        <article class="card" id="card-${item.id}">
+          <div class="card-title">${escapeHtml(item.title)}</div>
+          ${item.reason ? `<div class="card-field"><strong>Motif :</strong> ${escapeHtml(item.reason)}</div>` : ''}
+          ${item.consequence ? `<div class="card-field"><strong>Conséquence :</strong> ${escapeHtml(item.consequence)}</div>` : ''}
+          ${colType === 'pruned' && item.condition ? `<div class="card-field" style="color: #fde68a;"><strong>Condition :</strong> ${escapeHtml(item.condition)}</div>` : ''}
+          ${(item.related_to || []).length > 0 ? `
+            <div class="card-relations">
+              ${item.related_to.map(rel => `<span class="relation-tag" data-rel-id="${escapeHtml(rel)}">🔗 #${escapeHtml(rel)}</span>`).join('')}
+            </div>
+          ` : ''}
+        </article>
+      `).join('');
+    };
+
+    const app = document.getElementById('app');
+    app.innerHTML = `
+      <section class="column column-hypotheses">
+        <div class="column-header"><h2 class="column-title">🔮 Hypothèses</h2><span class="badge">${QTHOUGHTS_DATA.hypotheses.length}</span></div>
+        <div class="card-list">${renderCardList(QTHOUGHTS_DATA.hypotheses, 'hypotheses')}</div>
+      </section>
+      <section class="column column-todiscuss">
+        <div class="column-header"><h2 class="column-title">📌 Points à discuter</h2><span class="badge">${QTHOUGHTS_DATA.toDiscuss.length}</span></div>
+        <div class="card-list">${renderCardList(QTHOUGHTS_DATA.toDiscuss, 'toDiscuss')}</div>
+      </section>
+      <section class="column column-discussed">
+        <div class="column-header"><h2 class="column-title">✅ Points conservés</h2><span class="badge">${QTHOUGHTS_DATA.discussed.length}</span></div>
+        <div class="card-list">${renderCardList(QTHOUGHTS_DATA.discussed, 'discussed')}</div>
+      </section>
+      <section class="column column-pruned">
+        <div class="column-header"><h2 class="column-title">🌱 Points abandonnés</h2><span class="badge">${QTHOUGHTS_DATA.pruned.length}</span></div>
+        <div class="card-list">${renderCardList(QTHOUGHTS_DATA.pruned, 'pruned')}</div>
+      </section>
+    `;
+
+    document.querySelectorAll('.relation-tag').forEach(tag => {
+      tag.addEventListener('click', (e) => highlightRelation(e.target.getAttribute('data-rel-id')));
+    });
+  }
 
   function exportSession() {
     const jsonString = JSON.stringify(QTHOUGHTS_DATA, null, 2);
@@ -867,195 +1058,60 @@
     try {
       const parsed = JSON.parse(rawText);
       QTHOUGHTS_DATA = normalizeQThoughtsData(parsed);
+      window.QTHOUGHTS_DATA = QTHOUGHTS_DATA;
       renderBoard();
 
-      const syncPrompt = `Nous venons de restaurer notre mémoire cognitive Q-Thoughts. Voici l'état actuel de notre raisonnement (QTHOUGHTS_DATA) à prendre en compte :\n\n\`\`\`json\n${JSON.stringify(QTHOUGHTS_DATA, null, 2)}\n\`\`\``;
-
+      const syncPrompt = `Nous venons de restaurer notre mémoire cognitive Q-Thoughts :\n\n\`\`\`json\n${JSON.stringify(QTHOUGHTS_DATA, null, 2)}\n\`\`\``;
       document.getElementById('import-sync-prompt').value = syncPrompt;
       document.getElementById('import-step-input').style.display = 'none';
       document.getElementById('import-step-result').style.display = 'block';
-
     } catch (err) {
-      alert("Structure JSON invalide : " + err.message);
+      showToast("⚠️ JSON invalide : " + err.message);
     }
   }
 
-  function renderBoard() {
-    // 1. Mise à jour de la bannière d'objectif
-    document.getElementById('obj-title').textContent = "🎯 Objectif : " + (QTHOUGHTS_DATA.objective?.title || "En cours");
-    document.getElementById('obj-desc').textContent = QTHOUGHTS_DATA.objective?.description || "Aucune description fournie.";
+  function init() {
+    injectStyles();
+    buildDOM();
 
-    // 2. Gestion du bandeau de réactivation
-    const pendingReactivations = QTHOUGHTS_DATA.pending_reactivations || [];
-    const reactAlert = document.getElementById('reactivation-alert');
-    if (pendingReactivations.length > 0) {
-      document.getElementById('reactivation-count').textContent = pendingReactivations.length;
-      reactAlert.style.display = 'flex';
-    } else {
-      reactAlert.style.display = 'none';
-    }
-
-    // 3. Rendu de la grille
-    const app = document.getElementById('app');
-
-    app.innerHTML = `
-      <!-- COLONNE : HYPOTHÈSES IMPLICITES FAITES PAR L'IA -->
-      <section class="column column-hypotheses">
-        <div class="column-header">
-          <div class="column-title-wrap">
-            <h2 class="column-title">🔮 Hypothèses implicites faites par l'IA</h2>
-            <div class="category-tooltip">Suppositions et prérequis identifiés dans la réflexion.</div>
-          </div>
-          <span class="badge">${(QTHOUGHTS_DATA.hypotheses || []).length}</span>
-        </div>
-        <div class="card-list">
-          ${(QTHOUGHTS_DATA.hypotheses || []).map(item => `
-            <article class="card" id="card-${item.id}">
-              <div class="card-title">${item.title}</div>
-              ${item.reason ? `<div class="card-field"><strong>Motif :</strong> ${item.reason}</div>` : ''}
-              ${item.consequence ? `<div class="card-field"><strong>Conséquence :</strong> ${item.consequence}</div>` : ''}
-              ${(item.related_to || []).length > 0 ? `
-                <div class="card-relations">
-                  ${item.related_to.map(rel => `<span class="relation-tag" onclick="window.highlightRelation('${rel}')">🔗 #${rel}</span>`).join('')}
-                </div>
-              ` : ''}
-              <div class="card-hover-detail">
-                <div class="card-hover-detail-title">💡 Aperçu détaillé</div>
-                <strong>Motif :</strong> ${item.reason || "Non spécifié"}
-              </div>
-            </article>
-          `).join('')}
-        </div>
-      </section>
-
-      <!-- COLONNE : POINTS À DISCUTER -->
-      <section class="column column-todiscuss">
-        <div class="column-header">
-          <div class="column-title-wrap">
-            <h2 class="column-title">📌 Points à discuter</h2>
-            <div class="category-tooltip">Questions ouvertes et pistes restant à explorer.</div>
-          </div>
-          <span class="badge">${(QTHOUGHTS_DATA.toDiscuss || []).length}</span>
-        </div>
-        <div class="card-list">
-          ${(QTHOUGHTS_DATA.toDiscuss || []).map(item => `
-            <article class="card" id="card-${item.id}">
-              <div class="card-title" onclick="window.openValidationModal('${item.id}')">${item.title}</div>
-              ${item.reason ? `<div class="card-field"><strong>Pourquoi :</strong> ${item.reason}</div>` : ''}
-              ${item.consequence ? `<div class="card-field"><strong>Impact :</strong> ${item.consequence}</div>` : ''}
-              ${(item.related_to || []).length > 0 ? `
-                <div class="card-relations">
-                  ${item.related_to.map(rel => `<span class="relation-tag" onclick="window.highlightRelation('${rel}')">🔗 #${rel}</span>`).join('')}
-                </div>
-              ` : ''}
-              <div class="card-hover-detail">
-                <div class="card-hover-detail-title">💡 Aperçu détaillé</div>
-                <strong>Pourquoi :</strong> ${item.reason || item.title}
-              </div>
-              <button class="card-action" onclick="window.openValidationModal('${item.id}')">
-                ✅ Valider et conserver
-              </button>
-            </article>
-          `).join('')}
-        </div>
-      </section>
-
-      <!-- COLONNE : POINTS DISCUTÉS ET CONSERVÉS -->
-      <section class="column column-discussed">
-        <div class="column-header">
-          <div class="column-title-wrap">
-            <h2 class="column-title">✅ Points discutés et conservés</h2>
-            <div class="category-tooltip">Décisions et arbitrages fermement validés.</div>
-          </div>
-          <span class="badge">${(QTHOUGHTS_DATA.discussed || []).length}</span>
-        </div>
-        <div class="card-list">
-          ${(QTHOUGHTS_DATA.discussed || []).map(item => `
-            <article class="card" id="card-${item.id}">
-              <div class="card-title">${item.title}</div>
-              ${item.reason ? `<div class="card-field"><strong>Justification :</strong> ${item.reason}</div>` : ''}
-              ${item.consequence ? `<div class="card-field"><strong>Acquis :</strong> ${item.consequence}</div>` : ''}
-              ${(item.related_to || []).length > 0 ? `
-                <div class="card-relations">
-                  ${item.related_to.map(rel => `<span class="relation-tag" onclick="window.highlightRelation('${rel}')">🔗 #${rel}</span>`).join('')}
-                </div>
-              ` : ''}
-              <div class="card-hover-detail">
-                <div class="card-hover-detail-title">💡 Aperçu détaillé</div>
-                <strong>Justification :</strong> ${item.reason || item.title}
-              </div>
-              <button class="card-action" onclick="window.moveToDiscuss('${item.id}', 'discussed')">
-                📌 Remettre à discuter
-              </button>
-            </article>
-          `).join('')}
-        </div>
-      </section>
-
-      <!-- COLONNE : POINTS DISCUTÉS ET ABANDONNÉS -->
-      <section class="column column-pruned">
-        <div class="column-header">
-          <div class="column-title-wrap">
-            <h2 class="column-title">🌱 Points discutés et abandonnés</h2>
-            <div class="category-tooltip">Pistes délibérément écartées avec conditions de réactivation.</div>
-          </div>
-          <span class="badge">${(QTHOUGHTS_DATA.pruned || []).length}</span>
-        </div>
-        <div class="card-list">
-          ${(QTHOUGHTS_DATA.pruned || []).map(item => `
-            <article class="card" id="card-${item.id}">
-              <div class="card-title">${item.title}</div>
-              ${item.reason ? `<div class="card-field"><strong>Raison du rejet :</strong> ${item.reason}</div>` : ''}
-              <div class="card-field" style="color: #fde68a;"><strong>Condition :</strong> ${item.condition || item.reactivation_condition || 'Non spécifiée'}</div>
-              ${(item.related_to || []).length > 0 ? `
-                <div class="card-relations">
-                  ${item.related_to.map(rel => `<span class="relation-tag" onclick="window.highlightRelation('${rel}')">🔗 #${rel}</span>`).join('')}
-                </div>
-              ` : ''}
-              <div class="card-hover-detail">
-                <div class="card-hover-detail-title">💡 Aperçu détaillé</div>
-                <strong>Condition :</strong> ${item.condition || item.reactivation_condition || "Aucune"}
-              </div>
-              <button class="card-action" onclick="window.moveToDiscuss('${item.id}', 'pruned')">
-                📌 Remettre à discuter
-              </button>
-            </article>
-          `).join('')}
-        </div>
-      </section>
-    `;
-
-    setViewMode(currentViewMode);
-  }
-
-  function attachEvents() {
-    document.getElementById('btn-expanded').addEventListener('click', () => setViewMode('expanded'));
-    document.getElementById('btn-compact').addEventListener('click', () => setViewMode('compact'));
-
-    document.getElementById('objective-banner').addEventListener('click', () => {
-      document.getElementById('input-obj-title').value = QTHOUGHTS_DATA.objective?.title || '';
-      document.getElementById('input-obj-desc').value = QTHOUGHTS_DATA.objective?.description || '';
-      openModal('objective-modal');
+    document.getElementById('btn-open-gemini').addEventListener('click', () => {
+      document.getElementById('gemini-modal').classList.add('active');
     });
 
-    document.getElementById('btn-save-objective').addEventListener('click', () => {
-      QTHOUGHTS_DATA.objective.title = document.getElementById('input-obj-title').value.trim() || "Objectif";
-      QTHOUGHTS_DATA.objective.description = document.getElementById('input-obj-desc').value.trim() || "";
-      closeModal('objective-modal');
-      renderBoard();
-      showToast("🎯 Objectif mis à jour !");
+    document.getElementById('btn-gemini-parse-transcript').addEventListener('click', () => {
+      const val = document.getElementById('gemini-transcript-input').value.trim();
+      if (val) runGeminiParseTranscript(val);
+      else showToast("Veuillez saisir un texte.");
+    });
+
+    document.getElementById('btn-gemini-tts').addEventListener('click', runGeminiTTS);
+    document.getElementById('btn-gemini-generate-image').addEventListener('click', runGeminiGenerateImage);
+
+    document.getElementById('btn-expanded').addEventListener('click', () => {
+      currentViewMode = 'expanded';
+      document.getElementById('app').classList.remove('compact-mode');
+      document.getElementById('btn-expanded').classList.add('active');
+      document.getElementById('btn-compact').classList.remove('active');
+    });
+
+    document.getElementById('btn-compact').addEventListener('click', () => {
+      currentViewMode = 'compact';
+      document.getElementById('app').classList.add('compact-mode');
+      document.getElementById('btn-compact').classList.add('active');
+      document.getElementById('btn-expanded').classList.remove('active');
     });
 
     document.getElementById('btn-open-summary').addEventListener('click', () => {
-      document.getElementById('summary-content').textContent = QTHOUGHTS_DATA.summary || "Aucune synthèse disponible.";
-      openModal('summary-modal');
+      document.getElementById('summary-content').textContent = QTHOUGHTS_DATA.summary || "Aucune synthèse.";
+      document.getElementById('summary-modal').classList.add('active');
     });
 
     document.getElementById('btn-copy-summary').addEventListener('click', () => {
-      navigator.clipboard.writeText(QTHOUGHTS_DATA.summary || "").then(() => {
-        showToast("📋 Synthèse copiée !");
-        closeModal('summary-modal');
-      });
+      const text = QTHOUGHTS_DATA.summary || "";
+      if (navigator.clipboard) navigator.clipboard.writeText(text);
+      else document.execCommand('copy');
+      showToast("📋 Synthèse copiée !");
+      document.getElementById('summary-modal').classList.remove('active');
     });
 
     document.getElementById('btn-export-json').addEventListener('click', exportSession);
@@ -1064,7 +1120,7 @@
       document.getElementById('import-json-textarea').value = '';
       document.getElementById('import-step-input').style.display = 'block';
       document.getElementById('import-step-result').style.display = 'none';
-      openModal('import-modal');
+      document.getElementById('import-modal').classList.add('active');
     });
 
     document.getElementById('btn-process-import').addEventListener('click', processImport);
@@ -1073,38 +1129,62 @@
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (evt) => {
-        document.getElementById('import-json-textarea').value = evt.target.result;
-      };
+      reader.onload = (evt) => { document.getElementById('import-json-textarea').value = evt.target.result; };
       reader.readAsText(file);
     });
 
     document.getElementById('btn-copy-sync-prompt').addEventListener('click', () => {
       const text = document.getElementById('import-sync-prompt').value;
-      navigator.clipboard.writeText(text).then(() => {
-        showToast("📋 Prompt de synchronisation copié !");
-        closeModal('import-modal');
-      });
+      if (navigator.clipboard) navigator.clipboard.writeText(text);
+      else document.execCommand('copy');
+      showToast("📋 Prompt de synchronisation copié !");
+      document.getElementById('import-modal').classList.remove('active');
     });
 
-    document.getElementById('btn-confirm-val-prompt').addEventListener('click', () => confirmValidation(true));
-    document.getElementById('btn-confirm-val-silent').addEventListener('click', () => confirmValidation(false));
+    document.getElementById('btn-gemini-audit').addEventListener('click', runGeminiAudit);
+
+    document.getElementById('btn-gemini-web-search').addEventListener('click', () => {
+      const q = document.getElementById('gemini-search-query').value.trim();
+      if (q) runGeminiWebSearch(q);
+      else showToast("Veuillez entrer un terme.");
+    });
+
+    document.getElementById('btn-gemini-analyze-image').addEventListener('click', () => {
+      const fileInput = document.getElementById('gemini-image-input');
+      if (fileInput.files && fileInput.files[0]) runGeminiImageAnalyze(fileInput.files[0]);
+      else showToast("Sélectionnez une image.");
+    });
+
+    document.getElementById('btn-open-chat').addEventListener('click', () => {
+      document.getElementById('chat-modal').classList.add('active');
+    });
+
+    document.getElementById('btn-send-chat').addEventListener('click', () => {
+      const input = document.getElementById('chat-user-input');
+      const val = input.value.trim();
+      if (val) {
+        sendGeminiChatMessage(val);
+        input.value = '';
+      }
+    });
+
+    document.getElementById('chat-user-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-send-chat').click();
+    });
 
     document.querySelectorAll('[data-close]').forEach(btn => {
-      btn.addEventListener('click', (e) => closeModal(e.target.getAttribute('data-close')));
+      btn.addEventListener('click', (e) => {
+        const targetModalId = e.target.getAttribute('data-close');
+        document.getElementById(targetModalId).classList.remove('active');
+      });
     });
 
     document.getElementById('btn-filter-reactivations').addEventListener('click', () => {
       if (QTHOUGHTS_DATA.pending_reactivations && QTHOUGHTS_DATA.pending_reactivations.length > 0) {
-        window.highlightRelation(QTHOUGHTS_DATA.pending_reactivations[0]);
+        highlightRelation(QTHOUGHTS_DATA.pending_reactivations[0]);
       }
     });
-  }
 
-  function init() {
-    injectStyles();
-    buildDOM();
-    attachEvents();
     renderBoard();
   }
 
@@ -1113,5 +1193,4 @@
   } else {
     init();
   }
-
 })();
