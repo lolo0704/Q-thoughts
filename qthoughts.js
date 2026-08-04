@@ -1,10 +1,9 @@
 /**
- * Q-Thoughts Engine v3.8 (Pure Observer Mode - Accessibility & Focus Fixes)
+ * Q-Thoughts Engine v3.9 (Pure Observer Mode - Accessibility & Focus Fixes)
  * Dépôt GitHub : https://github.com/lolo0704/Q-thoughts
  * CDN : https://cdn.jsdelivr.net/gh/lolo0704/Q-thoughts@main/qthoughts.js
  */
 
-/* STREAMING_CHUNK:Defining utility functions for HTML escaping and ID hashing... */
 (function () {
   'use strict';
 
@@ -19,17 +18,6 @@
       .replace(/'/g, "&#039;");
   }
 
-  // Générateur d'ID déterministe basé sur le hash du titre (PR-8)
-  function hashString(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash |= 0;
-    }
-    return Math.abs(hash).toString(36);
-  }
-
-  /* STREAMING_CHUNK:Implementing robust clipboard copy with error handling... */
   // Pressepapier universel avec fallback textarea et gestion d'erreur par défaut
   function copyTextToClipboard(text, onSuccess, onError) {
     const handleErr = onError || (() => showToast("⚠️ Échec de la copie"));
@@ -56,34 +44,36 @@
     }
   }
 
-  /* STREAMING_CHUNK:Declaring custom CSS design tokens and focus-visible styles... */
   const STYLES = `
     :root {
-      --bg-color: #0b0f19;
-      --card-bg: #151d2a;
-      --card-border: #263346;
-      --text-main: #f1f5f9;
-      --text-muted: #94a3b8;
-      --accent-todiscuss: #38bdf8;
-      --accent-discussed: #22c55e;
-      --accent-pruned: #a855f7;
-      --accent-hypotheses: #f59e0b;
-      --accent-objective: #6366f1;
+      --bg-color: #0b0f19;          /* Fond principal sombre */
+      --col-bg: #151e2e;           /* Fond des colonnes */
+      --card-bg: #e2e8f0;          /* Fond clair adouci (gris ardoise) */
+      --card-text: #0f172a;        /* Texte principal des cartes (très foncé) */
+      --card-muted: #475569;       /* Texte secondaire des cartes */
+      --text-main: #f8fafc;        /* Texte principal de l'interface */
+      --text-muted: #94a3b8;       /* Texte secondaire de l'interface */
+      
+      --accent-hypotheses: #d97706; /* Orange */
+      --accent-todiscuss: #0284c7;  /* Bleu ciel */
+      --accent-discussed: #16a34a;  /* Vert */
+      --accent-pruned: #9333ea;     /* Violet */
+      --accent-objective: #6366f1;  /* Indigo */
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
       background-color: var(--bg-color);
       color: var(--text-main);
-      padding: 1.25rem;
+      padding: 1.5rem;
       line-height: 1.5;
     }
 
     header {
-      margin-bottom: 1.25rem;
-      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid #334155;
       padding-bottom: 1rem;
       display: flex;
       flex-wrap: wrap;
@@ -92,36 +82,33 @@
       gap: 1rem;
     }
 
-    .header-title-zone h1 { font-size: 1.4rem; font-weight: 700; }
-    p.subtitle { color: var(--text-muted); font-size: 0.825rem; margin-top: 0.2rem; }
+    .header-title-zone h1 { font-size: 1.5rem; font-weight: 800; color: #f8fafc; }
+    p.subtitle { color: #94a3b8; font-size: 0.85rem; margin-top: 0.2rem; }
 
     .toolbar-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
 
     .view-toggle {
       display: flex;
-      background-color: #0b0f19;
-      border: 2px solid #38bdf8;
-      border-radius: 10px;
-      padding: 0.15rem;
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 0.2rem;
       gap: 0.2rem;
     }
 
     .action-btn-header {
-      background-color: #151d2a;
-      border: 1px solid #334155;
-      color: var(--text-main);
-      padding: 0.4rem 0.75rem;
-      font-size: 0.775rem;
+      background-color: #334155;
+      border: none;
+      color: #ffffff;
+      padding: 0.45rem 0.85rem;
+      font-size: 0.8rem;
       font-weight: 600;
-      border-radius: 8px;
+      border-radius: 6px;
       cursor: pointer;
       transition: background-color 0.2s ease;
     }
 
-    .action-btn-header:hover { 
-      background-color: #0284c7; 
-      color: #fff; 
-    }
+    .action-btn-header:hover { background-color: #0284c7; }
 
     .action-btn-header:focus-visible,
     .toggle-btn:focus-visible,
@@ -138,26 +125,26 @@
       padding: 0.35rem 0.75rem;
       font-size: 0.775rem;
       font-weight: 600;
-      border-radius: 7px;
+      border-radius: 6px;
       cursor: pointer;
     }
 
     .toggle-btn.active { background-color: #0284c7; color: #ffffff; }
 
-    /* STREAMING_CHUNK:Styling layout banners and board columns... */
     .objective-banner {
-      background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 12px;
+      background-color: #151e2e;
+      border-left: 5px solid var(--accent-objective);
+      border-radius: 8px;
       padding: 1rem 1.25rem;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
     }
 
-    .objective-info h2 { font-size: 0.95rem; font-weight: 700; color: var(--accent-objective); margin-bottom: 0.25rem; }
-    .objective-desc { font-size: 0.85rem; color: var(--text-main); }
+    .objective-info h2 { font-size: 0.95rem; font-weight: 700; color: #818cf8; margin-bottom: 0.25rem; }
+    .objective-desc { font-size: 0.875rem; color: #cbd5e1; }
 
     .reactivation-alert-banner {
-      background: rgba(245, 158, 11, 0.1);
+      background-color: rgba(245, 158, 11, 0.15);
       border: 1px solid rgba(245, 158, 11, 0.4);
       color: #fde68a;
       padding: 0.65rem 1rem;
@@ -174,89 +161,129 @@
       background-color: #f59e0b;
       color: #000;
       border: none;
-      padding: 0.3rem 0.65rem;
+      padding: 0.35rem 0.75rem;
       border-radius: 6px;
       font-size: 0.75rem;
       font-weight: 700;
       cursor: pointer;
-      white-space: nowrap;
     }
 
     .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
 
     .column {
-      background-color: var(--card-bg);
-      border: 1px solid var(--card-border);
+      background-color: var(--col-bg);
+      border: 1px solid #28374d;
       border-radius: 12px;
-      padding: 1.1rem;
+      padding: 1rem;
     }
 
-    .column-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid transparent; }
+    .column-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 3px solid transparent; }
     .column-hypotheses .column-header { border-color: var(--accent-hypotheses); }
     .column-todiscuss .column-header { border-color: var(--accent-todiscuss); }
     .column-discussed .column-header { border-color: var(--accent-discussed); }
     .column-pruned .column-header { border-color: var(--accent-pruned); }
 
-    .column-title { font-size: 0.875rem; font-weight: 600; }
-    .badge { background-color: var(--card-border); color: var(--text-main); font-size: 0.725rem; padding: 0.1rem 0.5rem; border-radius: 9999px; }
-    .card-list { display: flex; flex-direction: column; gap: 0.85rem; }
+    .column-title { font-size: 0.9rem; font-weight: 700; color: #f8fafc; }
+    .badge-count { background-color: #334155; color: #f8fafc; font-size: 0.75rem; font-weight: 700; padding: 0.15rem 0.6rem; border-radius: 9999px; }
 
-    /* STREAMING_CHUNK:Styling cards and relation tags with distinct focus indicator... */
+    .card-list { display: flex; flex-direction: column; gap: 1rem; }
+
+    /* CARTE EN FOND CLAIR ADOUCI (GRIS ARDOISE CLAIR) AVEC DÉTACHEMENT NET */
     .card {
-      background-color: rgba(11, 15, 25, 0.7);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 0.9rem;
-      transition: all 0.2s ease;
+      background-color: var(--card-bg);
+      color: var(--card-text);
+      border-radius: 10px;
+      padding: 1rem;
+      box-shadow: 0 10px 18px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+      border: 1px solid #cbd5e1;
+      border-left: 6px solid #64748b;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     }
 
-    .card.highlighted { border-color: #38bdf8 !important; box-shadow: 0 0 12px rgba(56, 189, 248, 0.4); }
+    .column-hypotheses .card { border-left-color: var(--accent-hypotheses); }
+    .column-todiscuss .card { border-left-color: var(--accent-todiscuss); }
+    .column-discussed .card { border-left-color: var(--accent-discussed); }
+    .column-pruned .card { border-left-color: var(--accent-pruned); }
 
-    .card-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-main); }
-    .card-field { font-size: 0.775rem; color: var(--text-muted); margin-bottom: 0.35rem; }
-    .card-field strong { color: #cbd5e1; }
-    .card-relations { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+    .card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 24px -4px rgba(0, 0, 0, 0.65);
+    }
+
+    .card.highlighted { 
+      border-color: #0284c7 !important; 
+      box-shadow: 0 0 0 4px #38bdf8, 0 10px 20px -3px rgba(0, 0, 0, 0.6); 
+    }
+
+    /* BADGE ID EN DÉBUT DE CARTE */
+    .card-id-badge {
+      display: inline-block;
+      background-color: #0f172a;
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.15rem 0.5rem;
+      border-radius: 5px;
+      margin-right: 0.5rem;
+      vertical-align: middle;
+    }
+
+    .card-title {
+      font-size: 0.925rem;
+      font-weight: 700;
+      color: var(--card-text);
+      margin-bottom: 0.5rem;
+      line-height: 1.35;
+    }
+
+    .card-field {
+      font-size: 0.8rem;
+      color: var(--card-muted);
+      margin-top: 0.4rem;
+      padding-top: 0.4rem;
+      border-top: 1px dashed #cbd5e1;
+    }
+
+    .card-field strong { color: #0f172a; }
+
+    .card-relations { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
 
     .relation-tag {
-      background-color: rgba(99, 102, 241, 0.15);
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      color: #a5b4fc;
-      font-size: 0.675rem;
-      padding: 0.1rem 0.4rem;
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      color: #38bdf8;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
       border-radius: 4px;
       cursor: pointer;
-      transition: background-color 0.15s ease, border-color 0.15s ease;
     }
 
-    .relation-tag:hover { 
-      background-color: #6366f1; 
-      color: #fff; 
-    }
+    .relation-tag:hover { background-color: #0284c7; color: #ffffff; }
 
     .relation-tag:focus-visible {
       outline: 2px solid #38bdf8;
       outline-offset: 1px;
-      background-color: #4f46e5;
-      color: #fff;
     }
 
-    .compact-mode .card { padding: 0.6rem 0.85rem; }
+    .compact-mode .card { padding: 0.65rem 0.85rem; }
     .compact-mode .card-field, .compact-mode .card-relations { display: none !important; }
 
     .modal-overlay {
       position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(5px); display: none; align-items: center; justify-content: center; z-index: 1000;
     }
     .modal-overlay.active { display: flex; }
-    .modal-card { background-color: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1.5rem; max-width: 520px; width: 90%; }
-    .modal-textarea { width: 100%; height: 120px; background-color: rgba(11, 15, 25, 0.9); border: 1px solid var(--card-border); border-radius: 6px; color: var(--text-main); padding: 0.75rem; font-family: monospace; font-size: 0.775rem; margin-bottom: 1rem; }
+    .modal-card { background-color: var(--col-bg); border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; max-width: 520px; width: 90%; }
+    .modal-textarea { width: 100%; height: 120px; background-color: #0b0f19; border: 1px solid #334155; border-radius: 6px; color: var(--text-main); padding: 0.75rem; font-family: monospace; font-size: 0.775rem; margin-bottom: 1rem; }
     .modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
     .modal-desc { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; }
     .modal-buttons { display: flex; flex-direction: column; gap: 0.5rem; }
-    .modal-btn { padding: 0.6rem 1rem; border-radius: 6px; border: 1px solid var(--card-border); font-size: 0.825rem; font-weight: 600; cursor: pointer; text-align: center; }
+    .modal-btn { padding: 0.6rem 1rem; border-radius: 6px; border: 1px solid #334155; font-size: 0.825rem; font-weight: 600; cursor: pointer; text-align: center; }
     .modal-btn-primary { background-color: #0284c7; color: #fff; border-color: #0369a1; }
     .modal-btn-cancel { background: transparent; border-color: transparent; color: var(--text-muted); }
 
-    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background-color: #22c55e; color: #000; font-weight: 600; padding: 0.75rem 1.25rem; border-radius: 8px; display: none; z-index: 1100; }
+    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background-color: #22c55e; color: #000; font-weight: 700; padding: 0.75rem 1.25rem; border-radius: 8px; display: none; z-index: 1100; }
   `;
 
   function injectStyles() {
@@ -265,7 +292,6 @@
     document.head.appendChild(styleEl);
   }
 
-  /* STREAMING_CHUNK:Building DOM structure with app content wrapper... */
   function buildDOM() {
     document.body.innerHTML = `
       <div id="app-content-wrapper">
@@ -303,7 +329,7 @@
       <div id="summary-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="summary-modal-title">
         <div class="modal-card">
           <h3 class="modal-title" id="summary-modal-title">📝 Synthèse stratégique</h3>
-          <div id="summary-content" style="white-space: pre-line; color: var(--text-main); background: rgba(11, 15, 25, 0.9); padding: 0.85rem; border-radius: 6px; font-size: 0.8rem; margin-bottom: 1rem; border: 1px solid var(--card-border); max-height: 280px; overflow-y: auto;"></div>
+          <div id="summary-content" style="white-space: pre-line; color: var(--text-main); background: #0b0f19; padding: 0.85rem; border-radius: 6px; font-size: 0.8rem; margin-bottom: 1rem; border: 1px solid #334155; max-height: 280px; overflow-y: auto;"></div>
           <div class="modal-buttons">
             <button class="modal-btn modal-btn-primary" id="btn-copy-summary">📋 Copier la synthèse</button>
             <button class="modal-btn modal-btn-cancel" data-close="summary-modal">Fermer</button>
@@ -336,13 +362,12 @@
     `;
   }
 
-  /* STREAMING_CHUNK:Implementing defensive JSON normalization... */
   function normalizeQThoughtsData(raw) {
     const src = raw || {};
-    const cleanCard = (card, defaultPrefix) => {
+    const cleanCard = (card, defaultPrefix, index) => {
       if (!card || typeof card !== 'object') return null;
       const rawTitle = String(card.title || card.name || 'Sans titre');
-      const fallbackId = defaultPrefix + '_' + hashString(rawTitle);
+      const fallbackId = `${defaultPrefix}_${index + 1}`;
       return {
         id: String(card.id || fallbackId),
         title: rawTitle,
@@ -353,7 +378,7 @@
       };
     };
 
-    const cleanList = (arr, prefix) => Array.isArray(arr) ? arr.map(c => cleanCard(c, prefix)).filter(Boolean) : [];
+    const cleanList = (arr, prefix) => Array.isArray(arr) ? arr.map((c, idx) => cleanCard(c, prefix, idx)).filter(Boolean) : [];
 
     return {
       objective: {
@@ -369,7 +394,6 @@
     };
   }
 
-  /* STREAMING_CHUNK:Initializing state variables and accessibility helpers... */
   let QTHOUGHTS_DATA = normalizeQThoughtsData(window.QTHOUGHTS_DATA);
   let currentViewMode = 'expanded';
   let currentReactivationIndex = 0;
@@ -394,7 +418,6 @@
     }
   }
 
-  // Filtrage strict des éléments réellement visibles pour le focus trap
   function getVisibleFocusables(container) {
     if (!container) return [];
     const all = container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -404,7 +427,6 @@
     });
   }
 
-  /* STREAMING_CHUNK:Managing modals with strict focus trapping and ARIA attributes... */
   function openModal(modalId, triggerEl) {
     lastFocusedElement = triggerEl || document.activeElement;
     const modal = document.getElementById(modalId);
@@ -437,7 +459,6 @@
     }
   }
 
-  /* STREAMING_CHUNK:Rendering board columns with role="button" on relation tags... */
   function renderBoard() {
     document.getElementById('obj-title').innerHTML = "🎯 Objectif : " + escapeHtml(QTHOUGHTS_DATA.objective?.title || "");
     document.getElementById('obj-desc').textContent = QTHOUGHTS_DATA.objective?.description || "";
@@ -448,11 +469,14 @@
 
     const renderCardList = (list, colType) => {
       return (list || []).map(item => `
-        <article class="card" id="card-${item.id}">
-          <div class="card-title">${escapeHtml(item.title)}</div>
+        <article class="card" id="card-${escapeHtml(item.id)}">
+          <div class="card-title">
+            <span class="card-id-badge">#${escapeHtml(item.id)}</span>
+            ${escapeHtml(item.title)}
+          </div>
           ${item.reason ? `<div class="card-field"><strong>Motif :</strong> ${escapeHtml(item.reason)}</div>` : ''}
           ${item.consequence ? `<div class="card-field"><strong>Conséquence :</strong> ${escapeHtml(item.consequence)}</div>` : ''}
-          ${colType === 'pruned' && item.condition ? `<div class="card-field" style="color: #fde68a;"><strong>Condition :</strong> ${escapeHtml(item.condition)}</div>` : ''}
+          ${colType === 'pruned' && item.condition ? `<div class="card-field" style="color: #7c2d12;"><strong>Condition :</strong> ${escapeHtml(item.condition)}</div>` : ''}
           ${(item.related_to || []).length > 0 ? `
             <div class="card-relations">
               ${item.related_to.map(rel => `<span class="relation-tag" role="button" tabindex="0" data-rel-id="${escapeHtml(rel)}">🔗 #${escapeHtml(rel)}</span>`).join('')}
@@ -465,19 +489,19 @@
     const app = document.getElementById('app');
     app.innerHTML = `
       <section class="column column-hypotheses">
-        <div class="column-header"><h2 class="column-title">🔮 Hypothèses</h2><span class="badge">${QTHOUGHTS_DATA.hypotheses.length}</span></div>
+        <div class="column-header"><h2 class="column-title">🔮 Hypothèses</h2><span class="badge-count">${QTHOUGHTS_DATA.hypotheses.length}</span></div>
         <div class="card-list">${renderCardList(QTHOUGHTS_DATA.hypotheses, 'hypotheses')}</div>
       </section>
       <section class="column column-todiscuss">
-        <div class="column-header"><h2 class="column-title">📌 Points à discuter</h2><span class="badge">${QTHOUGHTS_DATA.toDiscuss.length}</span></div>
+        <div class="column-header"><h2 class="column-title">📌 Points à discuter</h2><span class="badge-count">${QTHOUGHTS_DATA.toDiscuss.length}</span></div>
         <div class="card-list">${renderCardList(QTHOUGHTS_DATA.toDiscuss, 'toDiscuss')}</div>
       </section>
       <section class="column column-discussed">
-        <div class="column-header"><h2 class="column-title">✅ Points conservés</h2><span class="badge">${QTHOUGHTS_DATA.discussed.length}</span></div>
+        <div class="column-header"><h2 class="column-title">✅ Points conservés</h2><span class="badge-count">${QTHOUGHTS_DATA.discussed.length}</span></div>
         <div class="card-list">${renderCardList(QTHOUGHTS_DATA.discussed, 'discussed')}</div>
       </section>
       <section class="column column-pruned">
-        <div class="column-header"><h2 class="column-title">🌱 Points abandonnés</h2><span class="badge">${QTHOUGHTS_DATA.pruned.length}</span></div>
+        <div class="column-header"><h2 class="column-title">🌱 Points abandonnés</h2><span class="badge-count">${QTHOUGHTS_DATA.pruned.length}</span></div>
         <div class="card-list">${renderCardList(QTHOUGHTS_DATA.pruned, 'pruned')}</div>
       </section>
     `;
@@ -492,15 +516,11 @@
       const handleRel = () => highlightRelation(tag.getAttribute('data-rel-id'));
       tag.addEventListener('click', handleRel);
       tag.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleRel();
-        }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRel(); }
       });
     });
   }
 
-  /* STREAMING_CHUNK:Attaching event listeners and keyboard accessibility handlers... */
   function init() {
     injectStyles();
     buildDOM();
@@ -561,8 +581,7 @@
     });
 
     document.getElementById('btn-copy-summary').addEventListener('click', () => {
-      const text = QTHOUGHTS_DATA.summary || "";
-      copyTextToClipboard(text, () => {
+      copyTextToClipboard(QTHOUGHTS_DATA.summary || "", () => {
         showToast("📋 Synthèse copiée !");
         closeModal('summary-modal');
       });
@@ -600,7 +619,6 @@
         document.getElementById('import-step-input').style.display = 'none';
         document.getElementById('import-step-result').style.display = 'block';
         
-        // Re-placer le focus sur le bouton de copie du résultat maintenant visible
         const copyBtn = document.getElementById('btn-copy-sync-prompt');
         if (copyBtn) copyBtn.focus();
       } catch (err) {
@@ -618,8 +636,7 @@
 
     document.querySelectorAll('[data-close]').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const targetModalId = e.target.getAttribute('data-close');
-        closeModal(targetModalId);
+        closeModal(e.target.getAttribute('data-close'));
       });
     });
 
