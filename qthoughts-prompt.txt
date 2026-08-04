@@ -19,6 +19,7 @@ Q-Thoughts ne gère pas des tâches à accomplir. Il conserve l'état de notre p
 - **Points à discuter (`toDiscuss`)** : Questions ouvertes et pistes restant à explorer.
 - **Points discutés et conservés (`discussed`)** : Choix et arbitrages validés.
 - **Points discutés et abandonnés (`pruned`)** : Pistes écartées, associées à leur condition de réactivation.
+ATTENTION : lors de l'échange, Q-Thoughts n'est que le reflet de la discussion. La discussion doit s'afficher normalement dans le chat de l'IA.  
 
 ---
 
