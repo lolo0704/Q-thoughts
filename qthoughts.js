@@ -1,12 +1,14 @@
 /**
- * Q-Thoughts Engine v3.5 (Pure Observer Mode)
+ * Q-Thoughts Engine v3.8 (Pure Observer Mode - Accessibility & Focus Fixes)
  * Dépôt GitHub : https://github.com/lolo0704/Q-thoughts
  * CDN : https://cdn.jsdelivr.net/gh/lolo0704/Q-thoughts@main/qthoughts.js
  */
 
+/* STREAMING_CHUNK:Defining utility functions for HTML escaping and ID hashing... */
 (function () {
   'use strict';
 
+  // Sécurisation HTML contre les failles XSS
   function escapeHtml(str) {
     if (typeof str !== 'string') return '';
     return str
@@ -17,6 +19,7 @@
       .replace(/'/g, "&#039;");
   }
 
+  // Générateur d'ID déterministe basé sur le hash du titre (PR-8)
   function hashString(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -26,6 +29,34 @@
     return Math.abs(hash).toString(36);
   }
 
+  /* STREAMING_CHUNK:Implementing robust clipboard copy with error handling... */
+  // Pressepapier universel avec fallback textarea et gestion d'erreur par défaut
+  function copyTextToClipboard(text, onSuccess, onError) {
+    const handleErr = onError || (() => showToast("⚠️ Échec de la copie"));
+    
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(onSuccess).catch(handleErr);
+    } else {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) onSuccess();
+        else handleErr();
+      } catch (err) {
+        handleErr(err);
+      }
+    }
+  }
+
+  /* STREAMING_CHUNK:Declaring custom CSS design tokens and focus-visible styles... */
   const STYLES = `
     :root {
       --bg-color: #0b0f19;
@@ -84,9 +115,21 @@
       font-weight: 600;
       border-radius: 8px;
       cursor: pointer;
+      transition: background-color 0.2s ease;
     }
 
-    .action-btn-header:hover { background-color: #0284c7; color: #fff; }
+    .action-btn-header:hover { 
+      background-color: #0284c7; 
+      color: #fff; 
+    }
+
+    .action-btn-header:focus-visible,
+    .toggle-btn:focus-visible,
+    .reactivation-btn:focus-visible,
+    .modal-btn:focus-visible {
+      outline: 2px solid #38bdf8;
+      outline-offset: 2px;
+    }
 
     .toggle-btn {
       background: transparent;
@@ -101,6 +144,7 @@
 
     .toggle-btn.active { background-color: #0284c7; color: #ffffff; }
 
+    /* STREAMING_CHUNK:Styling layout banners and board columns... */
     .objective-banner {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
       border: 1px solid rgba(99, 102, 241, 0.4);
@@ -123,6 +167,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 1rem;
     }
 
     .reactivation-btn {
@@ -134,6 +179,7 @@
       font-size: 0.75rem;
       font-weight: 700;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
@@ -155,6 +201,7 @@
     .badge { background-color: var(--card-border); color: var(--text-main); font-size: 0.725rem; padding: 0.1rem 0.5rem; border-radius: 9999px; }
     .card-list { display: flex; flex-direction: column; gap: 0.85rem; }
 
+    /* STREAMING_CHUNK:Styling cards and relation tags with distinct focus indicator... */
     .card {
       background-color: rgba(11, 15, 25, 0.7);
       border: 1px solid var(--card-border);
@@ -178,9 +225,20 @@
       padding: 0.1rem 0.4rem;
       border-radius: 4px;
       cursor: pointer;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
     }
 
-    .relation-tag:hover { background-color: #6366f1; color: #fff; }
+    .relation-tag:hover { 
+      background-color: #6366f1; 
+      color: #fff; 
+    }
+
+    .relation-tag:focus-visible {
+      outline: 2px solid #38bdf8;
+      outline-offset: 1px;
+      background-color: #4f46e5;
+      color: #fff;
+    }
 
     .compact-mode .card { padding: 0.6rem 0.85rem; }
     .compact-mode .card-field, .compact-mode .card-relations { display: none !important; }
@@ -207,41 +265,44 @@
     document.head.appendChild(styleEl);
   }
 
+  /* STREAMING_CHUNK:Building DOM structure with app content wrapper... */
   function buildDOM() {
     document.body.innerHTML = `
-      <header>
-        <div class="header-title-zone">
-          <h1>🧠 Q-Thoughts</h1>
-          <p class="subtitle">Mémoire latérale du raisonnement (Mode Observateur Pure)</p>
-        </div>
-        <div class="toolbar-actions">
-          <button class="action-btn-header" id="btn-open-summary">📝 Synthèse</button>
-          <button class="action-btn-header" id="btn-export-json">📤 Exporter JSON</button>
-          <button class="action-btn-header" id="btn-open-import">📥 Importer JSON</button>
-          <div class="view-toggle">
-            <button id="btn-expanded" class="toggle-btn active">📖 Vue Dépliée</button>
-            <button id="btn-compact" class="toggle-btn">⚡ Vue Compacte</button>
+      <div id="app-content-wrapper">
+        <header>
+          <div class="header-title-zone">
+            <h1>🧠 Q-Thoughts</h1>
+            <p class="subtitle">Mémoire latérale du raisonnement (Mode Observateur Pur)</p>
+          </div>
+          <div class="toolbar-actions">
+            <button class="action-btn-header" id="btn-open-summary">📝 Synthèse</button>
+            <button class="action-btn-header" id="btn-export-json">📤 Exporter JSON</button>
+            <button class="action-btn-header" id="btn-open-import">📥 Importer JSON</button>
+            <div class="view-toggle">
+              <button id="btn-expanded" class="toggle-btn active">📖 Vue Dépliée</button>
+              <button id="btn-compact" class="toggle-btn">⚡ Vue Compacte</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="objective-banner" id="objective-banner">
+          <div class="objective-info">
+            <h2 id="obj-title">🎯 Objectif</h2>
+            <p class="objective-desc" id="obj-desc"></p>
           </div>
         </div>
-      </header>
 
-      <div class="objective-banner" id="objective-banner">
-        <div class="objective-info">
-          <h2 id="obj-title">🎯 Objectif</h2>
-          <p class="objective-desc" id="obj-desc"></p>
+        <div id="reactivation-alert" class="reactivation-alert-banner" style="display: none;">
+          <span>⚠️ <strong>Réactivation potentielle :</strong> <span id="reactivation-count">0</span> piste(s).</span>
+          <button class="reactivation-btn" id="btn-filter-reactivations">Examiner la piste</button>
         </div>
+
+        <main class="board" id="app"></main>
       </div>
 
-      <div id="reactivation-alert" class="reactivation-alert-banner" style="display: none;">
-        <span>⚠️ <strong>Réactivation potentielle :</strong> <span id="reactivation-count">0</span> piste(s).</span>
-        <button class="reactivation-btn" id="btn-filter-reactivations">Examiner la piste</button>
-      </div>
-
-      <main class="board" id="app"></main>
-
-      <div id="summary-modal" class="modal-overlay">
+      <div id="summary-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="summary-modal-title">
         <div class="modal-card">
-          <h3 class="modal-title">📝 Synthèse stratégique</h3>
+          <h3 class="modal-title" id="summary-modal-title">📝 Synthèse stratégique</h3>
           <div id="summary-content" style="white-space: pre-line; color: var(--text-main); background: rgba(11, 15, 25, 0.9); padding: 0.85rem; border-radius: 6px; font-size: 0.8rem; margin-bottom: 1rem; border: 1px solid var(--card-border); max-height: 280px; overflow-y: auto;"></div>
           <div class="modal-buttons">
             <button class="modal-btn modal-btn-primary" id="btn-copy-summary">📋 Copier la synthèse</button>
@@ -250,9 +311,9 @@
         </div>
       </div>
 
-      <div id="import-modal" class="modal-overlay">
+      <div id="import-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
         <div class="modal-card">
-          <h3 class="modal-title">📥 Importer une mémoire Q-Thoughts</h3>
+          <h3 class="modal-title" id="import-modal-title">📥 Importer une mémoire Q-Thoughts</h3>
           <div id="import-step-input">
             <textarea id="import-json-textarea" class="modal-textarea" placeholder="Collez le contenu JSON ici..."></textarea>
             <div class="modal-buttons">
@@ -275,6 +336,7 @@
     `;
   }
 
+  /* STREAMING_CHUNK:Implementing defensive JSON normalization... */
   function normalizeQThoughtsData(raw) {
     const src = raw || {};
     const cleanCard = (card, defaultPrefix) => {
@@ -307,8 +369,11 @@
     };
   }
 
+  /* STREAMING_CHUNK:Initializing state variables and accessibility helpers... */
   let QTHOUGHTS_DATA = normalizeQThoughtsData(window.QTHOUGHTS_DATA);
   let currentViewMode = 'expanded';
+  let currentReactivationIndex = 0;
+  let lastFocusedElement = null;
 
   function showToast(msg) {
     const t = document.getElementById('toast');
@@ -329,6 +394,50 @@
     }
   }
 
+  // Filtrage strict des éléments réellement visibles pour le focus trap
+  function getVisibleFocusables(container) {
+    if (!container) return [];
+    const all = container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    return Array.from(all).filter(el => {
+      return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length) && 
+             window.getComputedStyle(el).visibility !== 'hidden';
+    });
+  }
+
+  /* STREAMING_CHUNK:Managing modals with strict focus trapping and ARIA attributes... */
+  function openModal(modalId, triggerEl) {
+    lastFocusedElement = triggerEl || document.activeElement;
+    const modal = document.getElementById(modalId);
+    const appWrapper = document.getElementById('app-content-wrapper');
+
+    if (modal) {
+      modal.classList.add('active');
+      if (appWrapper) appWrapper.setAttribute('aria-hidden', 'true');
+
+      const focusables = getVisibleFocusables(modal);
+      if (focusables.length > 0) focusables[0].focus();
+    }
+  }
+
+  function closeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    const appWrapper = document.getElementById('app-content-wrapper');
+
+    if (modal) {
+      modal.classList.remove('active');
+      
+      const remainingActiveModals = document.querySelectorAll('.modal-overlay.active');
+      if (remainingActiveModals.length === 0 && appWrapper) {
+        appWrapper.removeAttribute('aria-hidden');
+      }
+
+      if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+        lastFocusedElement.focus();
+      }
+    }
+  }
+
+  /* STREAMING_CHUNK:Rendering board columns with role="button" on relation tags... */
   function renderBoard() {
     document.getElementById('obj-title').innerHTML = "🎯 Objectif : " + escapeHtml(QTHOUGHTS_DATA.objective?.title || "");
     document.getElementById('obj-desc').textContent = QTHOUGHTS_DATA.objective?.description || "";
@@ -337,7 +446,6 @@
     document.getElementById('reactivation-alert').style.display = pending.length > 0 ? 'flex' : 'none';
     document.getElementById('reactivation-count').textContent = pending.length;
 
-    /* RENDU STRICT : AUCUN BOUTON D'ACTION DANS LES CARTES */
     const renderCardList = (list, colType) => {
       return (list || []).map(item => `
         <article class="card" id="card-${item.id}">
@@ -347,7 +455,7 @@
           ${colType === 'pruned' && item.condition ? `<div class="card-field" style="color: #fde68a;"><strong>Condition :</strong> ${escapeHtml(item.condition)}</div>` : ''}
           ${(item.related_to || []).length > 0 ? `
             <div class="card-relations">
-              ${item.related_to.map(rel => `<span class="relation-tag" data-rel-id="${escapeHtml(rel)}">🔗 #${escapeHtml(rel)}</span>`).join('')}
+              ${item.related_to.map(rel => `<span class="relation-tag" role="button" tabindex="0" data-rel-id="${escapeHtml(rel)}">🔗 #${escapeHtml(rel)}</span>`).join('')}
             </div>
           ` : ''}
         </article>
@@ -374,14 +482,64 @@
       </section>
     `;
 
+    if (currentViewMode === 'compact') {
+      app.classList.add('compact-mode');
+    } else {
+      app.classList.remove('compact-mode');
+    }
+
     document.querySelectorAll('.relation-tag').forEach(tag => {
-      tag.addEventListener('click', (e) => highlightRelation(e.target.getAttribute('data-rel-id')));
+      const handleRel = () => highlightRelation(tag.getAttribute('data-rel-id'));
+      tag.addEventListener('click', handleRel);
+      tag.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleRel();
+        }
+      });
     });
   }
 
+  /* STREAMING_CHUNK:Attaching event listeners and keyboard accessibility handlers... */
   function init() {
     injectStyles();
     buildDOM();
+
+    document.addEventListener('keydown', (e) => {
+      const activeModal = document.querySelector('.modal-overlay.active');
+      
+      if (e.key === 'Escape' && activeModal) {
+        closeModal(activeModal.id);
+      }
+
+      if (e.key === 'Tab' && activeModal) {
+        const focusables = getVisibleFocusables(activeModal);
+        if (focusables.length === 0) return;
+
+        const firstEl = focusables[0];
+        const lastEl = focusables[focusables.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstEl) {
+            lastEl.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === lastEl) {
+            firstEl.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    });
+
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          closeModal(overlay.id);
+        }
+      });
+    });
 
     document.getElementById('btn-expanded').addEventListener('click', () => {
       currentViewMode = 'expanded';
@@ -397,17 +555,17 @@
       document.getElementById('btn-expanded').classList.remove('active');
     });
 
-    document.getElementById('btn-open-summary').addEventListener('click', () => {
+    document.getElementById('btn-open-summary').addEventListener('click', (e) => {
       document.getElementById('summary-content').textContent = QTHOUGHTS_DATA.summary || "Aucune synthèse.";
-      document.getElementById('summary-modal').classList.add('active');
+      openModal('summary-modal', e.currentTarget);
     });
 
     document.getElementById('btn-copy-summary').addEventListener('click', () => {
       const text = QTHOUGHTS_DATA.summary || "";
-      if (navigator.clipboard) navigator.clipboard.writeText(text);
-      else document.execCommand('copy');
-      showToast("📋 Synthèse copiée !");
-      document.getElementById('summary-modal').classList.remove('active');
+      copyTextToClipboard(text, () => {
+        showToast("📋 Synthèse copiée !");
+        closeModal('summary-modal');
+      });
     });
 
     document.getElementById('btn-export-json').addEventListener('click', () => {
@@ -422,11 +580,11 @@
       showToast("📤 Mémoire exportée en JSON !");
     });
 
-    document.getElementById('btn-open-import').addEventListener('click', () => {
+    document.getElementById('btn-open-import').addEventListener('click', (e) => {
       document.getElementById('import-json-textarea').value = '';
       document.getElementById('import-step-input').style.display = 'block';
       document.getElementById('import-step-result').style.display = 'none';
-      document.getElementById('import-modal').classList.add('active');
+      openModal('import-modal', e.currentTarget);
     });
 
     document.getElementById('btn-process-import').addEventListener('click', () => {
@@ -436,10 +594,15 @@
         const parsed = JSON.parse(rawText);
         QTHOUGHTS_DATA = normalizeQThoughtsData(parsed);
         window.QTHOUGHTS_DATA = QTHOUGHTS_DATA;
+        currentReactivationIndex = 0;
         renderBoard();
-        document.getElementById('import-sync-prompt').value = `Nous avons restaurer Q-Thoughts :\n\`\`\`json\n${JSON.stringify(QTHOUGHTS_DATA, null, 2)}\n\`\`\``;
+        document.getElementById('import-sync-prompt').value = `Nous avons restauré Q-Thoughts :\n\`\`\`json\n${JSON.stringify(QTHOUGHTS_DATA, null, 2)}\n\`\`\``;
         document.getElementById('import-step-input').style.display = 'none';
         document.getElementById('import-step-result').style.display = 'block';
+        
+        // Re-placer le focus sur le bouton de copie du résultat maintenant visible
+        const copyBtn = document.getElementById('btn-copy-sync-prompt');
+        if (copyBtn) copyBtn.focus();
       } catch (err) {
         showToast("⚠️ JSON invalide : " + err.message);
       }
@@ -447,22 +610,26 @@
 
     document.getElementById('btn-copy-sync-prompt').addEventListener('click', () => {
       const text = document.getElementById('import-sync-prompt').value;
-      if (navigator.clipboard) navigator.clipboard.writeText(text);
-      else document.execCommand('copy');
-      showToast("📋 Prompt de synchronisation copié !");
-      document.getElementById('import-modal').classList.remove('active');
+      copyTextToClipboard(text, () => {
+        showToast("📋 Prompt de synchronisation copié !");
+        closeModal('import-modal');
+      });
     });
 
     document.querySelectorAll('[data-close]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const targetModalId = e.target.getAttribute('data-close');
-        document.getElementById(targetModalId).classList.remove('active');
+        closeModal(targetModalId);
       });
     });
 
     document.getElementById('btn-filter-reactivations').addEventListener('click', () => {
-      if (QTHOUGHTS_DATA.pending_reactivations && QTHOUGHTS_DATA.pending_reactivations.length > 0) {
-        highlightRelation(QTHOUGHTS_DATA.pending_reactivations[0]);
+      const pending = QTHOUGHTS_DATA.pending_reactivations || [];
+      if (pending.length > 0) {
+        const targetId = pending[currentReactivationIndex % pending.length];
+        highlightRelation(targetId);
+        showToast(`🔍 Examen piste (${(currentReactivationIndex % pending.length) + 1}/${pending.length})`);
+        currentReactivationIndex++;
       }
     });
 
