@@ -1,5 +1,5 @@
 /**
- * Q-Thoughts Engine v3.9 (Pure Observer Mode - Accessibility & Focus Fixes)
+ * Q-Thoughts Engine v4.0 (Pure Observer Mode - No more cards)
  * Dépôt GitHub : https://github.com/lolo0704/Q-thoughts
  * CDN : https://cdn.jsdelivr.net/gh/lolo0704/Q-thoughts@main/qthoughts.js
  */
