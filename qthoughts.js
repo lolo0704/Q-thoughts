@@ -1,9 +1,10 @@
 /**
- * Moteur Q-Thoughts v5.3 (100% Français)
+ * Moteur Q-Thoughts v5.4 (100% Français)
  * Moteur de rendu autonome pour la mémoire latérale cognitive.
  * Changements v5.3 :
  * - Les hypothèses sont sorties de la synthèse narrative et placées dans une section dédiée en bas
  * - Sections Synthèse / Hypothèses / Pistes écartées mieux différenciées visuellement (fonds distincts)
+ * - Synthèse allégée : un seul tag par point + liste ; plus de liste des prochaines pistes (déjà dans le Cap)
  */
 
 (function () {
@@ -446,20 +447,12 @@
     const aDiscuter = donnees.aDiscuter || [];
 
     if (discute.length > 0) {
+      html += `<p><strong>Points validés :</strong></p>`;
       discute.forEach(dis => {
         const titre = dis.titre || '';
         const raison = dis.raison || '';
         const consequence = dis.consequence || '';
-        html += `<p>Nous avons validé ${genererTagHTML(dis.id)} <strong>${titre}</strong> ${genererTagHTML(dis.id)}. ${raison} <em>Conséquence :</em> ${consequence}</p>`;
-      });
-    }
-
-    if (aDiscuter.length > 0) {
-      html += `<p><strong>Prochaines pistes à explorer :</strong></p>`;
-      aDiscuter.forEach(ad => {
-        const titre = ad.titre || '';
-        const raison = ad.raison || '';
-        html += `<p>• ${genererTagHTML(ad.id)} <strong>${titre}</strong> ${genererTagHTML(ad.id)} : ${raison}</p>`;
+        html += `<p>• ${genererTagHTML(dis.id)} <strong>${titre}</strong>. ${raison} <em>Conséquence :</em> ${consequence}</p>`;
       });
     }
 
