@@ -1,10 +1,11 @@
 /**
- * Moteur Q-Thoughts v5.4 (100% Français)
+ * Moteur Q-Thoughts v5.5 (100% Français)
  * Moteur de rendu autonome pour la mémoire latérale cognitive.
  * Changements v5.3 :
  * - Les hypothèses sont sorties de la synthèse narrative et placées dans une section dédiée en bas
  * - Sections Synthèse / Hypothèses / Pistes écartées mieux différenciées visuellement (fonds distincts)
  * - Synthèse allégée : un seul tag par point + liste ; plus de liste des prochaines pistes (déjà dans le Cap)
+ * - Hypothèses et pistes écartées : même style de liste que les points validés
  */
 
 (function () {
@@ -465,20 +466,14 @@
     if (hypotheses.length === 0) {
       listeHypEl.innerHTML = '<p class="qt-vide">Aucune hypothèse pour le moment.</p>';
     } else {
-      listeHypEl.innerHTML = hypotheses.map(h => {
+      let htmlHyp = '';
+      hypotheses.forEach(h => {
         const titre = h.titre || '';
         const raison = h.raison || '—';
         const consequence = h.consequence || '—';
-        return `
-          <div class="qt-item-carte">
-            <div>${genererTagHTML(h.id)} <strong>${titre}</strong> ${genererTagHTML(h.id)}</div>
-            <div class="qt-item-details">
-              <strong>Pourquoi :</strong> ${raison}<br>
-              <strong>Si faux :</strong> ${consequence}
-            </div>
-          </div>
-        `;
-      }).join('');
+        htmlHyp += `<p>• ${genererTagHTML(h.id)} <strong>${titre}</strong>. ${raison} <em>Si faux :</em> ${consequence}</p>`;
+      });
+      listeHypEl.innerHTML = htmlHyp;
     }
 
     // === PISTES ÉCARTÉES ===
@@ -488,20 +483,14 @@
     if (abandonne.length === 0) {
       listeAbandonneesEl.innerHTML = '<p class="qt-vide">Aucun point abandonné pour le moment.</p>';
     } else {
-      listeAbandonneesEl.innerHTML = abandonne.map(p => {
+      let htmlAb = '';
+      abandonne.forEach(p => {
         const titre = p.titre || '';
         const raison = p.raison || 'Non précisé';
         const condition = p.condition || '—';
-        return `
-          <div class="qt-item-carte">
-            <div>${genererTagHTML(p.id)} <strong>${titre}</strong> ${genererTagHTML(p.id)}</div>
-            <div class="qt-item-details">
-              <strong>Pourquoi écarté :</strong> ${raison}<br>
-              <strong>Condition de réactivation :</strong> ${condition}
-            </div>
-          </div>
-        `;
-      }).join('');
+        htmlAb += `<p>• ${genererTagHTML(p.id)} <strong>${titre}</strong>. ${raison} <em>Réactivation :</em> ${condition}</p>`;
+      });
+      listeAbandonneesEl.innerHTML = htmlAb;
     }
   }
 
