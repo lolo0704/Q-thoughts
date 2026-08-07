@@ -1,6 +1,9 @@
 /**
- * Moteur Q-Thoughts v5.2 (100% Français)
+ * Moteur Q-Thoughts v5.3 (100% Français)
  * Moteur de rendu autonome pour la mémoire latérale cognitive.
+ * Changements v5.3 :
+ * - Les hypothèses sont sorties de la synthèse narrative et placées dans une section dédiée en bas
+ * - Sections Synthèse / Hypothèses / Pistes écartées mieux différenciées visuellement (fonds distincts)
  */
 
 (function () {
@@ -101,27 +104,27 @@
     }
 
     .qt-accordeon-identifiant {
-      font-family: ui-monospace, monospace;
-      font-size: 11.5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      font-weight: 700;
       color: var(--orange);
-      background: rgba(251, 191, 36, 0.15);
+      background: rgba(251, 191, 36, 0.12);
       padding: 2px 6px;
       border-radius: 4px;
       flex-shrink: 0;
-      margin-top: 1px;
     }
 
     .qt-accordeon-titre {
-      font-size: var(--police-petite);
-      font-weight: 500;
-      color: var(--texte);
       flex: 1;
+      font-size: 13.5px;
+      font-weight: 500;
+      line-height: 1.4;
     }
 
     .qt-accordeon-chevron {
+      font-size: 10px;
       color: var(--texte-atténué);
-      font-size: 11px;
-      transition: transform 0.2s;
+      transition: transform 0.2s ease;
       margin-top: 3px;
     }
 
@@ -131,11 +134,11 @@
 
     .qt-accordeon-corps {
       display: none;
-      padding: 12px 14px 14px 14px;
-      border-top: 1px solid var(--bordure);
+      padding: 0 14px 14px 14px;
       font-size: var(--police-petite);
       color: var(--texte-atténué);
-      background: rgba(0,0,0,0.1);
+      line-height: 1.6;
+      border-top: 1px solid var(--bordure);
     }
 
     .qt-accordeon-element.ouvert .qt-accordeon-corps {
@@ -143,29 +146,7 @@
     }
 
     .qt-accordeon-corps p {
-      margin-top: 8px;
-    }
-
-    .qt-accordeon-corps strong {
-      color: var(--texte);
-      font-weight: 500;
-    }
-
-    .qt-lie-a {
       margin-top: 10px;
-      font-size: 11.5px;
-    }
-
-    .qt-lie-a span {
-      display: inline-block;
-      background: var(--surface);
-      border: 1px solid var(--bordure);
-      padding: 1px 6px;
-      border-radius: 4px;
-      margin-right: 4px;
-      font-family: ui-monospace, monospace;
-      color: var(--texte-atténué);
-      cursor: help;
     }
 
     .qt-principal {
@@ -177,7 +158,7 @@
     }
 
     .qt-principal-entete {
-      padding: 20px 32px 16px;
+      padding: 10px 12px 8px;
       border-bottom: 1px solid var(--bordure);
       background: var(--surface);
     }
@@ -199,20 +180,59 @@
     .qt-contenu {
       flex: 1;
       overflow-y: auto;
-      padding: 24px 32px 48px;
+      padding: 8px 10px 20px;
     }
 
     .qt-synthese {
-      max-width: 800px;
+      max-width: none;
+      width: 100%;
     }
 
-    .qt-synthese h2 {
+    /* ========== SECTIONS DIFFÉRENCIÉES ========== */
+
+    .qt-section {
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      border: 1px solid var(--bordure);
+    }
+
+    .qt-section h2 {
       font-size: 12px;
       font-weight: 600;
-      color: var(--texte-atténué);
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Synthèse : fond neutre légèrement bleuté */
+    .qt-section-synthese {
+      background: rgba(108, 158, 255, 0.06);
+      border-color: rgba(108, 158, 255, 0.18);
+    }
+    .qt-section-synthese h2 {
+      color: var(--accent);
+    }
+
+    /* Hypothèses : fond verdâtre */
+    .qt-section-hypotheses {
+      background: rgba(74, 222, 128, 0.06);
+      border-color: rgba(74, 222, 128, 0.18);
+    }
+    .qt-section-hypotheses h2 {
+      color: var(--vert);
+    }
+
+    /* Pistes écartées : fond rougeâtre */
+    .qt-section-abandonne {
+      background: rgba(248, 113, 113, 0.06);
+      border-color: rgba(248, 113, 113, 0.18);
+    }
+    .qt-section-abandonne h2 {
+      color: var(--rouge);
     }
 
     .qt-synthese-corps {
@@ -222,8 +242,7 @@
     }
 
     .qt-synthese-corps p {
-      margin-bottom: 16px;
-      font-size: var(--police-principale);
+      margin-bottom: 14px;
     }
 
     .qt-tag {
@@ -250,38 +269,27 @@
     .qt-tag-ad  { background: rgba(251, 191, 36, 0.15); color: var(--orange); }
     .qt-tag-ab  { background: rgba(248, 113, 113, 0.15); color: var(--rouge); }
 
-    .qt-abandonne-section {
-      margin-top: 36px;
-      padding-top: 20px;
-      border-top: 1px dashed var(--bordure);
-    }
-
-    .qt-abandonne-section h3 {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--texte-atténué);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 14px;
-    }
-
-    .qt-abandonne-item {
-      background: var(--surface);
+    .qt-item-carte {
+      background: rgba(0,0,0,0.18);
       border: 1px solid var(--bordure);
-      border-radius: var(--rayon);
-      padding: 14px 16px;
+      border-radius: 8px;
+      padding: 12px 14px;
       margin-bottom: 10px;
       font-size: var(--police-principale);
     }
 
-    .qt-abandonne-details {
+    .qt-item-carte:last-child {
+      margin-bottom: 0;
+    }
+
+    .qt-item-details {
       color: var(--texte-atténué);
       font-size: var(--police-petite);
       margin-top: 6px;
-      line-height: 1.6;
+      line-height: 1.55;
     }
 
-    .qt-abandonne-vide {
+    .qt-vide {
       color: var(--texte-atténué);
       font-size: var(--police-principale);
       font-style: italic;
@@ -319,21 +327,14 @@
   }
 
   function genererTagHTML(id) {
-    const correspondance = id.match(/^([a-zA-Z]+)(\d+)$/);
-    const prefixe = correspondance ? correspondance[1].toLowerCase() : id;
-
-    let classeCss = 'qt-tag-ad';
-    if (prefixe === 'hyp') classeCss = 'qt-tag-hyp';
-    else if (prefixe === 'dis') classeCss = 'qt-tag-dis';
-    else if (prefixe === 'ab') classeCss = 'qt-tag-ab';
-
-    const infobulle = obtenirInfobulleTag(id);
-    return `<span class="qt-tag ${classeCss}" title="${infobulle}">[${id}]</span>`;
-  }
-
-  function analyserTexteFormate(texte) {
-    if (!texte) return '';
-    return texte.replace(/\[([a-zA-Z0-9]+)\]/g, (match, tagId) => genererTagHTML(tagId));
+    if (!id) return '';
+    const prefixe = id.replace(/[0-9]/g, '').toLowerCase();
+    let classe = 'qt-tag';
+    if (prefixe === 'hyp') classe += ' qt-tag-hyp';
+    else if (prefixe === 'dis') classe += ' qt-tag-dis';
+    else if (prefixe === 'ad') classe += ' qt-tag-ad';
+    else if (prefixe === 'ab') classe += ' qt-tag-ab';
+    return `<span class="${classe}" title="${obtenirInfobulleTag(id)}">${id}</span>`;
   }
 
   function injecterDisposition() {
@@ -359,15 +360,29 @@
 
         <div class="qt-contenu">
           <div class="qt-synthese">
-            <h2>Synthèse cognitive du raisonnement</h2>
-            <div class="qt-synthese-corps" id="qt-synthese-corps"></div>
 
-            <div class="qt-abandonne-section">
-              <h3>Pistes écartées (Abandonnées) & Conditions de réactivation</h3>
-              <div id="qt-abandonne-liste">
-                <p class="qt-abandonne-vide">Aucun point abandonné pour le moment.</p>
+            <!-- SYNTHÈSE -->
+            <div class="qt-section qt-section-synthese">
+              <h2>Synthèse cognitive</h2>
+              <div class="qt-synthese-corps" id="qt-synthese-corps"></div>
+            </div>
+
+            <!-- HYPOTHÈSES (nouvelle section dédiée) -->
+            <div class="qt-section qt-section-hypotheses">
+              <h2>Hypothèses actives</h2>
+              <div id="qt-hypotheses-liste">
+                <p class="qt-vide">Aucune hypothèse pour le moment.</p>
               </div>
             </div>
+
+            <!-- PISTES ÉCARTÉES -->
+            <div class="qt-section qt-section-abandonne">
+              <h2>Pistes écartées & conditions de réactivation</h2>
+              <div id="qt-abandonne-liste">
+                <p class="qt-vide">Aucun point abandonné pour le moment.</p>
+              </div>
+            </div>
+
           </div>
         </div>
       </main>
@@ -391,7 +406,6 @@
       const titre = element.titre || '';
       const raison = element.raison || '';
       const consequence = element.consequence || '';
-      const lieA = element.lie_a || [];
 
       div.innerHTML = `
         <div class="qt-accordeon-entete">
@@ -402,16 +416,10 @@
         <div class="qt-accordeon-corps">
           <p><strong>Pourquoi :</strong> ${raison}</p>
           <p><strong>Conséquence :</strong> ${consequence}</p>
-          ${lieA && lieA.length
-            ? `<div class="qt-lie-a">Lié à : ${lieA.map(r => `<span title="${obtenirInfobulleTag(r)}">${r}</span>`).join('')}</div>`
-            : ''}
         </div>
       `;
 
       div.querySelector('.qt-accordeon-entete').addEventListener('click', () => {
-        document.querySelectorAll('.qt-accordeon-element').forEach(el => {
-          if (el !== div) el.classList.remove('ouvert');
-        });
         div.classList.toggle('ouvert');
       });
 
@@ -420,21 +428,21 @@
   }
 
   function afficherSynthese(donnees) {
-    const obj = donnees.objectif;
-    if (obj) {
-      document.getElementById('qt-objectif-titre').textContent = obj.titre || 'Sans titre';
-      document.getElementById('qt-objectif-description').textContent = obj.description || '';
-    }
+    // Objectif
+    document.getElementById('qt-objectif-titre').textContent = (donnees.objectif && donnees.objectif.titre) || 'Sans titre';
+    document.getElementById('qt-objectif-description').textContent = (donnees.objectif && donnees.objectif.description) || '';
 
+    // Cap actuel (extrait du resume)
     const resume = donnees.resume || '';
-    const ligneCap = resume.split('\n').find(l => l.includes('CAP ACTUEL')) || '🚀 CAP ACTUEL : En attente...';
-    document.getElementById('qt-cap-actuel').innerHTML = analyserTexteFormate(ligneCap);
+    const lignes = resume.split(/\n/);
+    const ligneCap = lignes.find(l => l.includes('CAP ACTUEL')) || '🚀 CAP ACTUEL : En attente...';
+    document.getElementById('qt-cap-actuel').textContent = ligneCap;
 
+    // === SYNTHÈSE (sans les hypothèses) ===
     const corpsEl = document.getElementById('qt-synthese-corps');
     let html = '';
 
     const discute = donnees.discute || [];
-    const hypotheses = donnees.hypotheses || [];
     const aDiscuter = donnees.aDiscuter || [];
 
     if (discute.length > 0) {
@@ -443,14 +451,6 @@
         const raison = dis.raison || '';
         const consequence = dis.consequence || '';
         html += `<p>Nous avons validé ${genererTagHTML(dis.id)} <strong>${titre}</strong> ${genererTagHTML(dis.id)}. ${raison} <em>Conséquence :</em> ${consequence}</p>`;
-      });
-    }
-
-    if (hypotheses.length > 0) {
-      hypotheses.forEach(hyp => {
-        const titre = hyp.titre || '';
-        const raison = hyp.raison || '';
-        html += `<p>Nous appuyons notre raisonnement sur ${genererTagHTML(hyp.id)} <strong>${titre}</strong> ${genererTagHTML(hyp.id)}. ${raison}</p>`;
       });
     }
 
@@ -463,22 +463,46 @@
       });
     }
 
-    corpsEl.innerHTML = html || '<p>Initialisation de la réflexion en cours...</p>';
+    corpsEl.innerHTML = html || '<p class="qt-vide">Initialisation de la réflexion en cours...</p>';
 
+    // === HYPOTHÈSES (section dédiée) ===
+    const listeHypEl = document.getElementById('qt-hypotheses-liste');
+    const hypotheses = donnees.hypotheses || [];
+
+    if (hypotheses.length === 0) {
+      listeHypEl.innerHTML = '<p class="qt-vide">Aucune hypothèse pour le moment.</p>';
+    } else {
+      listeHypEl.innerHTML = hypotheses.map(h => {
+        const titre = h.titre || '';
+        const raison = h.raison || '—';
+        const consequence = h.consequence || '—';
+        return `
+          <div class="qt-item-carte">
+            <div>${genererTagHTML(h.id)} <strong>${titre}</strong> ${genererTagHTML(h.id)}</div>
+            <div class="qt-item-details">
+              <strong>Pourquoi :</strong> ${raison}<br>
+              <strong>Si faux :</strong> ${consequence}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // === PISTES ÉCARTÉES ===
     const listeAbandonneesEl = document.getElementById('qt-abandonne-liste');
     const abandonne = donnees.abandonne || [];
 
     if (abandonne.length === 0) {
-      listeAbandonneesEl.innerHTML = '<p class="qt-abandonne-vide">Aucun point abandonné pour le moment.</p>';
+      listeAbandonneesEl.innerHTML = '<p class="qt-vide">Aucun point abandonné pour le moment.</p>';
     } else {
       listeAbandonneesEl.innerHTML = abandonne.map(p => {
         const titre = p.titre || '';
         const raison = p.raison || 'Non précisé';
         const condition = p.condition || '—';
         return `
-          <div class="qt-abandonne-item">
+          <div class="qt-item-carte">
             <div>${genererTagHTML(p.id)} <strong>${titre}</strong> ${genererTagHTML(p.id)}</div>
-            <div class="qt-abandonne-details">
+            <div class="qt-item-details">
               <strong>Pourquoi écarté :</strong> ${raison}<br>
               <strong>Condition de réactivation :</strong> ${condition}
             </div>
