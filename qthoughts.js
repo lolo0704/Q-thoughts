@@ -1,22 +1,18 @@
 /**
- * Moteur Q-Thoughts v5.6 (100% Français)
- * Moteur de rendu autonome pour la mémoire latérale cognitive.
+ * Moteur Q-Thoughts v5.7 (100% Français)
  *
- * Changements v5.6 :
- * - Barre latérale repliable
- * - Mode réduit : affichage des seuls identifiants
- * - Survol d'un identifiant : affichage du titre du sujet
- * - Bouton de bascule largeur normale / réduite
- * - Conservation du fonctionnement de l'accordéon
- *
- * Changements v5.3 :
- * - Les hypothèses sont sorties de la synthèse narrative et placées dans une section dédiée en bas
- * - Sections Synthèse / Hypothèses / Pistes écartées mieux différenciées visuellement
- * - Synthèse allégée : un seul tag par point + liste ; plus de liste des prochaines pistes
- * - Hypothèses et pistes écartées : même style de liste que les points validés
+ * Principes :
+ * - Les données de QTHOUGHTS_DATA sont considérées comme non fiables.
+ * - Aucun contenu provenant des données n'est injecté avec innerHTML.
+ * - Les éléments DOM sont construits explicitement.
+ * - La barre latérale peut être réduite à l'affichage des IDs.
+ * - Le titre d'un sujet apparaît dans un tooltip flottant.
+ * - Les IDs restent immuables et servent de repères historiques.
  */
 
 (function () {
+  'use strict';
+
   const styles = `
     :root {
       --fond: #0f1115;
@@ -30,9 +26,12 @@
       --vert: #4ade80;
       --orange: #fbbf24;
       --rouge: #f87171;
+
       --rayon: 10px;
+
       --largeur-barre: 320px;
       --largeur-barre-reduite: 58px;
+
       --police-principale: 14px;
       --police-petite: 13px;
     }
@@ -60,15 +59,21 @@
     .qt-barre-laterale {
       width: var(--largeur-barre);
       min-width: var(--largeur-barre);
+
       background: var(--surface);
       border-right: 1px solid var(--bordure);
+
       display: flex;
       flex-direction: column;
+
       height: 100vh;
+
       transition:
         width 0.2s ease,
         min-width 0.2s ease;
+
       overflow: hidden;
+
       position: relative;
       z-index: 10;
     }
@@ -79,65 +84,86 @@
     }
 
     /* =========================================================
-       ENTÊTE
+       ENTÊTE SIDEBAR
        ========================================================= */
 
     .qt-barre-entete {
       min-height: 55px;
+
       padding: 14px 16px;
+
       border-bottom: 1px solid var(--bordure);
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      color: var(--texte-atténué);
+
       display: flex;
       align-items: center;
       justify-content: space-between;
+
       gap: 8px;
+
       flex-shrink: 0;
     }
 
     .qt-barre-entete-contenu {
       display: flex;
       align-items: center;
+
       gap: 8px;
+
       min-width: 0;
+
       overflow: hidden;
+
       white-space: nowrap;
     }
 
     .qt-barre-entete-titre {
+      font-size: 13px;
+      font-weight: 600;
+
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+
+      color: var(--texte-atténué);
+
       overflow: hidden;
       text-overflow: ellipsis;
-      transition: opacity 0.15s ease;
     }
 
-    .qt-barre-entete .qt-compteur {
+    .qt-compteur {
       background: rgba(251, 191, 36, 0.15);
       color: var(--orange);
+
       font-size: 12px;
       padding: 2px 8px;
+
       border-radius: 999px;
+
       font-weight: 600;
+
       flex-shrink: 0;
-      transition: opacity 0.15s ease;
     }
 
     .qt-bouton-repli {
       width: 26px;
       height: 26px;
+
       border: 1px solid var(--bordure);
       border-radius: 6px;
+
       background: var(--surface-2);
       color: var(--texte-atténué);
+
       cursor: pointer;
+
       display: flex;
       align-items: center;
       justify-content: center;
+
       font-size: 14px;
       line-height: 1;
+
       flex-shrink: 0;
+
       transition:
         background 0.15s ease,
         color 0.15s ease;
@@ -148,7 +174,6 @@
       color: var(--texte);
     }
 
-    /* Mode réduit : on ne conserve visuellement que le bouton */
     .qt-barre-laterale.repliee .qt-barre-entete {
       padding: 14px 16px;
       justify-content: center;
@@ -158,18 +183,16 @@
       display: none;
     }
 
-    .qt-barre-laterale.repliee .qt-bouton-repli {
-      transform: none;
-    }
-
     /* =========================================================
-       LISTE ACCORDÉON
+       LISTE
        ========================================================= */
 
     .qt-accordeon-liste {
       flex: 1;
+
       overflow-y: auto;
       overflow-x: hidden;
+
       padding: 12px;
     }
 
@@ -177,89 +200,126 @@
       padding: 10px 8px;
     }
 
+    /* =========================================================
+       ELEMENT ACCORDEON
+       ========================================================= */
+
     .qt-accordeon-element {
       background: var(--surface-2);
+
       border: 1px solid var(--bordure);
       border-radius: var(--rayon);
+
       margin-bottom: 10px;
-      overflow: visible;
+
+      overflow: hidden;
+
       transition:
         border-color 0.2s ease,
-        box-shadow 0.2s ease,
-        background 0.2s ease;
-      position: relative;
+        box-shadow 0.2s ease;
     }
 
     .qt-accordeon-element.ouvert {
       border-color: var(--accent);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    }
 
-    /* =========================================================
-       ENTÊTE D'UN ÉLÉMENT
-       ========================================================= */
+      box-shadow:
+        0 4px 12px rgba(0,0,0,0.25);
+    }
 
     .qt-accordeon-entete {
       min-height: 44px;
+
       padding: 10px 12px;
+
       cursor: pointer;
+
       display: flex;
       align-items: center;
+
       gap: 10px;
+
       user-select: none;
-      position: relative;
     }
 
     .qt-accordeon-entete:hover {
       background: rgba(255,255,255,0.03);
     }
 
+    /* =========================================================
+       ID
+       ========================================================= */
+
     .qt-accordeon-identifiant {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family:
+        ui-monospace,
+        SFMono-Regular,
+        Menlo,
+        monospace;
+
       font-size: 11px;
       font-weight: 700;
+
       color: var(--orange);
-      background: rgba(251, 191, 36, 0.12);
+
+      background:
+        rgba(251, 191, 36, 0.12);
+
       padding: 3px 6px;
+
       border-radius: 4px;
+
       flex-shrink: 0;
+
       white-space: nowrap;
-      cursor: pointer;
     }
 
     .qt-accordeon-titre {
       flex: 1;
+
+      min-width: 0;
+
       font-size: 13.5px;
       font-weight: 500;
+
       line-height: 1.4;
-      min-width: 0;
     }
 
     .qt-accordeon-chevron {
       font-size: 10px;
+
       color: var(--texte-atténué);
-      transition: transform 0.2s ease;
+
+      transition:
+        transform 0.2s ease;
+
       flex-shrink: 0;
     }
 
-    .qt-accordeon-element.ouvert .qt-accordeon-chevron {
+    .qt-accordeon-element.ouvert
+    .qt-accordeon-chevron {
       transform: rotate(90deg);
     }
 
     /* =========================================================
-       CORPS ACCORDÉON
+       CORPS
        ========================================================= */
 
     .qt-accordeon-corps {
       display: none;
-      padding: 0 14px 14px 14px;
+
+      padding: 0 14px 14px;
+
       font-size: var(--police-petite);
+
       color: var(--texte-atténué);
+
       line-height: 1.6;
+
       border-top: 1px solid var(--bordure);
     }
 
-    .qt-accordeon-element.ouvert .qt-accordeon-corps {
+    .qt-accordeon-element.ouvert
+    .qt-accordeon-corps {
       display: block;
     }
 
@@ -268,99 +328,96 @@
     }
 
     /* =========================================================
-       MODE BARRE RÉDUITE
+       MODE REDUIT
        ========================================================= */
 
-    .qt-barre-laterale.repliee .qt-accordeon-element {
+    .qt-barre-laterale.repliee
+    .qt-accordeon-element {
       margin-bottom: 8px;
+
       border-radius: 7px;
-      overflow: visible;
     }
 
-    .qt-barre-laterale.repliee .qt-accordeon-entete {
+    .qt-barre-laterale.repliee
+    .qt-accordeon-entete {
       min-height: 38px;
       height: 38px;
+
       padding: 5px;
+
       justify-content: center;
-      gap: 0;
     }
 
-    .qt-barre-laterale.repliee .qt-accordeon-identifiant {
-      font-size: 10px;
-      padding: 4px 3px;
+    .qt-barre-laterale.repliee
+    .qt-accordeon-identifiant {
       width: 100%;
+
+      padding: 4px 3px;
+
       text-align: center;
+
+      font-size: 10px;
+
+      cursor: default;
     }
 
-    .qt-barre-laterale.repliee .qt-accordeon-titre,
-    .qt-barre-laterale.repliee .qt-accordeon-chevron,
-    .qt-barre-laterale.repliee .qt-accordeon-corps {
+    .qt-barre-laterale.repliee
+    .qt-accordeon-titre,
+
+    .qt-barre-laterale.repliee
+    .qt-accordeon-chevron,
+
+    .qt-barre-laterale.repliee
+    .qt-accordeon-corps {
       display: none;
     }
 
-    /*
-     * Infobulle personnalisée.
-     * Elle contient le titre du sujet et apparaît au survol de l'ID.
-     */
-    .qt-barre-laterale.repliee
-    .qt-accordeon-identifiant[data-tooltip]::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      left: calc(100% + 10px);
-      top: 50%;
-      transform: translateY(-50%);
-      width: max-content;
-      max-width: 280px;
+    /* =========================================================
+       TOOLTIP FLOTTANT
+       ========================================================= */
+
+    .qt-tooltip {
+      position: fixed;
+
+      max-width: 320px;
+
       padding: 8px 11px;
+
+      border:
+        1px solid var(--bordure);
+
       border-radius: 7px;
-      border: 1px solid var(--bordure);
+
       background: #20242c;
       color: var(--texte);
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+
+      font-family:
+        'Inter',
+        system-ui,
+        -apple-system,
+        sans-serif;
+
       font-size: 12px;
-      font-weight: 400;
+
       line-height: 1.45;
-      text-align: left;
-      white-space: normal;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-      opacity: 0;
-      visibility: hidden;
+
+      box-shadow:
+        0 8px 24px rgba(0,0,0,0.35);
+
       pointer-events: none;
-      z-index: 1000;
+
+      opacity: 0;
+
+      visibility: hidden;
+
+      z-index: 10000;
+
       transition:
         opacity 0.12s ease,
         visibility 0.12s ease;
     }
 
-    .qt-barre-laterale.repliee
-    .qt-accordeon-identifiant[data-tooltip]:hover::after {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    /*
-     * Petite flèche de l'infobulle.
-     */
-    .qt-barre-laterale.repliee
-    .qt-accordeon-identifiant[data-tooltip]::before {
-      content: '';
-      position: absolute;
-      left: calc(100% + 4px);
-      top: 50%;
-      width: 8px;
-      height: 8px;
-      background: #20242c;
-      border-left: 1px solid var(--bordure);
-      border-bottom: 1px solid var(--bordure);
-      transform: translateY(-50%) rotate(45deg);
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-      z-index: 1001;
-    }
-
-    .qt-barre-laterale.repliee
-    .qt-accordeon-identifiant[data-tooltip]:hover::before {
+    .qt-tooltip.visible {
       opacity: 1;
       visibility: visible;
     }
@@ -371,41 +428,53 @@
 
     .qt-principal {
       flex: 1;
+
+      min-width: 0;
+
       display: flex;
       flex-direction: column;
+
       height: 100vh;
+
       overflow: hidden;
-      min-width: 0;
     }
 
     .qt-principal-entete {
       padding: 10px 12px 8px;
+
       border-bottom: 1px solid var(--bordure);
+
       background: var(--surface);
     }
 
     .qt-principal-entete h1 {
       font-size: 18px;
       font-weight: 600;
+
       margin-bottom: 6px;
+
       color: var(--texte);
     }
 
     .qt-description-objectif {
       font-size: var(--police-principale);
+
       color: var(--texte-atténué);
+
       max-width: 800px;
+
       line-height: 1.6;
     }
 
     .qt-contenu {
       flex: 1;
+
       overflow-y: auto;
+
       padding: 8px 10px 20px;
     }
 
     .qt-synthese {
-      max-width: none;
       width: 100%;
     }
 
@@ -415,25 +484,35 @@
 
     .qt-section {
       border-radius: 8px;
+
       padding: 10px 12px;
+
       margin-bottom: 10px;
+
       border: 1px solid var(--bordure);
     }
 
     .qt-section h2 {
       font-size: 12px;
       font-weight: 600;
+
       text-transform: uppercase;
       letter-spacing: 0.05em;
+
       margin-bottom: 14px;
+
       display: flex;
       align-items: center;
+
       gap: 8px;
     }
 
     .qt-section-synthese {
-      background: rgba(108, 158, 255, 0.06);
-      border-color: rgba(108, 158, 255, 0.18);
+      background:
+        rgba(108, 158, 255, 0.06);
+
+      border-color:
+        rgba(108, 158, 255, 0.18);
     }
 
     .qt-section-synthese h2 {
@@ -441,8 +520,11 @@
     }
 
     .qt-section-hypotheses {
-      background: rgba(74, 222, 128, 0.06);
-      border-color: rgba(74, 222, 128, 0.18);
+      background:
+        rgba(74, 222, 128, 0.06);
+
+      border-color:
+        rgba(74, 222, 128, 0.18);
     }
 
     .qt-section-hypotheses h2 {
@@ -450,8 +532,11 @@
     }
 
     .qt-section-abandonne {
-      background: rgba(248, 113, 113, 0.06);
-      border-color: rgba(248, 113, 113, 0.18);
+      background:
+        rgba(248, 113, 113, 0.06);
+
+      border-color:
+        rgba(248, 113, 113, 0.18);
     }
 
     .qt-section-abandonne h2 {
@@ -460,7 +545,9 @@
 
     .qt-synthese-corps {
       font-size: var(--police-principale);
+
       line-height: 1.7;
+
       color: #d1d5db;
     }
 
@@ -473,550 +560,1464 @@
        ========================================================= */
 
     .qt-tag {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 11.5px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin: 0 3px;
-      white-space: nowrap;
-      font-weight: 600;
-      display: inline-block;
-      vertical-align: middle;
-      cursor: help;
-      transition:
-        opacity 0.15s ease,
-        transform 0.15s ease;
-    }
+      font-family:
+        ui-monospace,
+        SFMono-Regular,
+        Menlo,
+        monospace;
 
-    .qt-tag:hover {
-      opacity: 0.85;
-      transform: translateY(-1px);
+      font-size: 11.5px;
+
+      padding: 2px 6px;
+
+      border-radius: 4px;
+
+      margin: 0 3px;
+
+      white-space: nowrap;
+
+      font-weight: 600;
+
+      display: inline-block;
+
+      vertical-align: middle;
+
+      cursor: help;
     }
 
     .qt-tag-hyp {
-      background: rgba(74, 222, 128, 0.15);
+      background:
+        rgba(74, 222, 128, 0.15);
+
       color: var(--vert);
     }
 
     .qt-tag-dis {
-      background: rgba(108, 158, 255, 0.15);
+      background:
+        rgba(108, 158, 255, 0.15);
+
       color: var(--accent);
     }
 
     .qt-tag-ad {
-      background: rgba(251, 191, 36, 0.15);
+      background:
+        rgba(251, 191, 36, 0.15);
+
       color: var(--orange);
     }
 
     .qt-tag-ab {
-      background: rgba(248, 113, 113, 0.15);
+      background:
+        rgba(248, 113, 113, 0.15);
+
       color: var(--rouge);
     }
 
     /* =========================================================
-       CARTES
+       ELEMENTS
        ========================================================= */
-
-    .qt-item-carte {
-      background: rgba(0,0,0,0.18);
-      border: 1px solid var(--bordure);
-      border-radius: 8px;
-      padding: 12px 14px;
-      margin-bottom: 10px;
-      font-size: var(--police-principale);
-    }
-
-    .qt-item-carte:last-child {
-      margin-bottom: 0;
-    }
-
-    .qt-item-details {
-      color: var(--texte-atténué);
-      font-size: var(--police-petite);
-      margin-top: 6px;
-      line-height: 1.55;
-    }
 
     .qt-vide {
       color: var(--texte-atténué);
+
       font-size: var(--police-principale);
+
       font-style: italic;
     }
 
     .qt-cap {
       display: block;
+
       width: fit-content;
       max-width: 100%;
-      background: var(--accent-doux);
+
+      background:
+        var(--accent-doux);
+
       color: var(--accent);
+
       font-size: var(--police-petite);
+
       padding: 8px 14px;
+
       border-radius: 8px;
+
       margin-top: 14px;
+
       font-weight: 500;
-      border: 1px solid rgba(108, 158, 255, 0.25);
+
+      border:
+        1px solid rgba(108, 158, 255, 0.25);
+
       line-height: 1.6;
     }
   `;
 
+  /* ===========================================================
+     OUTILS DE DONNÉES
+     =========================================================== */
+
+  function valeurTexte(valeur, valeurParDefaut) {
+    if (
+      typeof valeur === 'string' ||
+      typeof valeur === 'number'
+    ) {
+      return String(valeur);
+    }
+
+    return valeurParDefaut || '';
+  }
+
+  function tableauSecurise(valeur) {
+    return Array.isArray(valeur) ? valeur : [];
+  }
+
+  function objetSecurise(valeur) {
+    if (
+      valeur &&
+      typeof valeur === 'object' &&
+      !Array.isArray(valeur)
+    ) {
+      return valeur;
+    }
+
+    return {};
+  }
+
+  /* ===========================================================
+     OUTILS DOM
+     =========================================================== */
+
+  function creerElement(tag, classe, texte) {
+    const element = document.createElement(tag);
+
+    if (classe) {
+      element.className = classe;
+    }
+
+    if (texte !== undefined && texte !== null) {
+      element.textContent = String(texte);
+    }
+
+    return element;
+  }
+
+  function ajouterTexteAvecEmphase(parent, texteAvant, texteEmphase, texteApres) {
+    if (texteAvant) {
+      parent.appendChild(
+        document.createTextNode(texteAvant)
+      );
+    }
+
+    if (texteEmphase) {
+      const strong = document.createElement('strong');
+      strong.textContent = texteEmphase;
+      parent.appendChild(strong);
+    }
+
+    if (texteApres) {
+      parent.appendChild(
+        document.createTextNode(texteApres)
+      );
+    }
+  }
+
+  /* ===========================================================
+     IDS / TAGS
+     =========================================================== */
+
   function obtenirInfobulleTag(id) {
-    if (!id) return '';
+    const texte = valeurTexte(id, '');
 
-    const correspondance = id.match(/^([a-zA-Z]+)(\d+)$/);
+    if (!texte) {
+      return '';
+    }
 
-    if (!correspondance) return id;
+    const correspondance =
+      texte.match(/^([a-zA-Z]+)(\\d+)$/);
 
-    const prefixe = correspondance[1].toLowerCase();
-    const numero = correspondance[2];
+    if (!correspondance) {
+      return texte;
+    }
 
-    if (prefixe === 'hyp') return `Hypothèse ${numero}`;
-    if (prefixe === 'dis') return `Point discuté ${numero}`;
-    if (prefixe === 'ad') return `Point à discuter ${numero}`;
-    if (prefixe === 'ab') return `Point abandonné ${numero}`;
+    const prefixe =
+      correspondance[1].toLowerCase();
 
-    return id;
+    const numero =
+      correspondance[2];
+
+    if (prefixe === 'hyp') {
+      return `Hypothèse ${numero}`;
+    }
+
+    if (prefixe === 'dis') {
+      return `Point discuté ${numero}`;
+    }
+
+    if (prefixe === 'ad') {
+      return `Point à discuter ${numero}`;
+    }
+
+    if (prefixe === 'ab') {
+      return `Point abandonné ${numero}`;
+    }
+
+    return texte;
   }
 
-  function echapperHTML(texte) {
-    return String(texte || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+  function genererTagDOM(id) {
+    const texteId = valeurTexte(id, '');
+
+    const tag =
+      creerElement(
+        'span',
+        'qt-tag',
+        texteId
+      );
+
+    const prefixe =
+      texteId
+        .replace(/[0-9]/g, '')
+        .toLowerCase();
+
+    if (prefixe === 'hyp') {
+      tag.classList.add('qt-tag-hyp');
+    }
+
+    else if (prefixe === 'dis') {
+      tag.classList.add('qt-tag-dis');
+    }
+
+    else if (prefixe === 'ad') {
+      tag.classList.add('qt-tag-ad');
+    }
+
+    else if (prefixe === 'ab') {
+      tag.classList.add('qt-tag-ab');
+    }
+
+    tag.title =
+      obtenirInfobulleTag(texteId);
+
+    return tag;
   }
 
-  function genererTagHTML(id) {
-    if (!id) return '';
+  /* ===========================================================
+     TOOLTIP FLOTTANT
+     =========================================================== */
 
-    const prefixe = id.replace(/[0-9]/g, '').toLowerCase();
+  let tooltip = null;
 
-    let classe = 'qt-tag';
+  function creerTooltip() {
+    if (tooltip) {
+      return tooltip;
+    }
 
-    if (prefixe === 'hyp') classe += ' qt-tag-hyp';
-    else if (prefixe === 'dis') classe += ' qt-tag-dis';
-    else if (prefixe === 'ad') classe += ' qt-tag-ad';
-    else if (prefixe === 'ab') classe += ' qt-tag-ab';
+    tooltip =
+      creerElement(
+        'div',
+        'qt-tooltip'
+      );
 
-    return `<span class="${classe}" title="${echapperHTML(obtenirInfobulleTag(id))}">${echapperHTML(id)}</span>`;
+    tooltip.setAttribute(
+      'role',
+      'tooltip'
+    );
+
+    document.body.appendChild(tooltip);
+
+    return tooltip;
   }
+
+  function afficherTooltip(cible, texte) {
+    if (!cible || !texte) {
+      return;
+    }
+
+    const tip = creerTooltip();
+
+    tip.textContent = texte;
+
+    tip.classList.add('visible');
+
+    const rect =
+      cible.getBoundingClientRect();
+
+    const marge = 10;
+
+    /*
+     * Position initiale à droite de la cible.
+     */
+    let left =
+      rect.right + marge;
+
+    let top =
+      rect.top + (rect.height / 2);
+
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+
+    /*
+     * On mesure après insertion pour éviter
+     * que le tooltip sorte de l'écran.
+     */
+    const tipRect =
+      tip.getBoundingClientRect();
+
+    if (
+      left + tipRect.width >
+      window.innerWidth - marge
+    ) {
+      left =
+        rect.left -
+        tipRect.width -
+        marge;
+    }
+
+    top =
+      rect.top +
+      (rect.height / 2) -
+      (tipRect.height / 2);
+
+    if (
+      top + tipRect.height >
+      window.innerHeight - marge
+    ) {
+      top =
+        window.innerHeight -
+        tipRect.height -
+        marge;
+    }
+
+    if (top < marge) {
+      top = marge;
+    }
+
+    if (left < marge) {
+      left = marge;
+    }
+
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  }
+
+  function masquerTooltip() {
+    if (!tooltip) {
+      return;
+    }
+
+    tooltip.classList.remove('visible');
+  }
+
+  /* ===========================================================
+     DISPOSITION
+     =========================================================== */
 
   function injecterDisposition() {
-    const elementStyle = document.createElement('style');
+    const elementStyle =
+      document.createElement('style');
 
     elementStyle.textContent = styles;
 
     document.head.appendChild(elementStyle);
 
-    document.body.innerHTML = `
-      <aside class="qt-barre-laterale" id="qt-barre-laterale">
+    document.body.replaceChildren();
 
-        <div class="qt-barre-entete">
+    const barre =
+      creerElement(
+        'aside',
+        'qt-barre-laterale'
+      );
 
-          <div class="qt-barre-entete-contenu">
-            <span class="qt-barre-entete-titre">
-              Points à discuter
-            </span>
+    barre.id =
+      'qt-barre-laterale';
 
-            <span
-              class="qt-compteur"
-              id="qt-ad-compteur"
-            >
-              0
-            </span>
-          </div>
+    const entete =
+      creerElement(
+        'div',
+        'qt-barre-entete'
+      );
 
-          <button
-            class="qt-bouton-repli"
-            id="qt-bouton-repli"
-            type="button"
-            aria-label="Réduire la barre latérale"
-            title="Réduire la barre latérale"
-          >
-            ‹
-          </button>
+    const enteteContenu =
+      creerElement(
+        'div',
+        'qt-barre-entete-contenu'
+      );
 
-        </div>
+    const enteteTitre =
+      creerElement(
+        'span',
+        'qt-barre-entete-titre',
+        'Points à discuter'
+      );
 
-        <div
-          class="qt-accordeon-liste"
-          id="qt-accordeon-liste"
-        ></div>
+    const compteur =
+      creerElement(
+        'span',
+        'qt-compteur',
+        '0'
+      );
 
-      </aside>
+    compteur.id =
+      'qt-ad-compteur';
 
-      <main class="qt-principal">
+    enteteContenu.appendChild(
+      enteteTitre
+    );
 
-        <header class="qt-principal-entete">
+    enteteContenu.appendChild(
+      compteur
+    );
 
-          <h1 id="qt-objectif-titre">
-            Chargement…
-          </h1>
+    const bouton =
+      creerElement(
+        'button',
+        'qt-bouton-repli',
+        '‹'
+      );
 
-          <p
-            class="qt-description-objectif"
-            id="qt-objectif-description"
-          ></p>
+    bouton.id =
+      'qt-bouton-repli';
 
-          <div
-            class="qt-cap"
-            id="qt-cap-actuel"
-          >
-            🚀 Cap actuel : Initialisation...
-          </div>
+    bouton.type =
+      'button';
 
-        </header>
+    bouton.setAttribute(
+      'aria-label',
+      'Réduire la barre latérale'
+    );
 
-        <div class="qt-contenu">
+    bouton.title =
+      'Réduire la barre latérale';
 
-          <div class="qt-synthese">
+    entete.appendChild(
+      enteteContenu
+    );
 
-            <!-- SYNTHÈSE -->
-            <div class="qt-section qt-section-synthese">
+    entete.appendChild(
+      bouton
+    );
 
-              <h2>
-                Synthèse cognitive
-              </h2>
+    const liste =
+      creerElement(
+        'div',
+        'qt-accordeon-liste'
+      );
 
-              <div
-                class="qt-synthese-corps"
-                id="qt-synthese-corps"
-              ></div>
+    liste.id =
+      'qt-accordeon-liste';
 
-            </div>
+    barre.appendChild(entete);
+    barre.appendChild(liste);
 
-            <!-- HYPOTHÈSES -->
-            <div class="qt-section qt-section-hypotheses">
+    /* =========================================================
+       PRINCIPAL
+       ========================================================= */
 
-              <h2>
-                Hypothèses actives
-              </h2>
+    const principal =
+      creerElement(
+        'main',
+        'qt-principal'
+      );
 
-              <div id="qt-hypotheses-liste">
-                <p class="qt-vide">
-                  Aucune hypothèse pour le moment.
-                </p>
-              </div>
+    const entetePrincipal =
+      creerElement(
+        'header',
+        'qt-principal-entete'
+      );
 
-            </div>
+    const titreObjectif =
+      creerElement(
+        'h1',
+        '',
+        'Chargement…'
+      );
 
-            <!-- PISTES ÉCARTÉES -->
-            <div class="qt-section qt-section-abandonne">
+    titreObjectif.id =
+      'qt-objectif-titre';
 
-              <h2>
-                Pistes écartées & conditions de réactivation
-              </h2>
+    const description =
+      creerElement(
+        'p',
+        'qt-description-objectif'
+      );
 
-              <div id="qt-abandonne-liste">
-                <p class="qt-vide">
-                  Aucun point abandonné pour le moment.
-                </p>
-              </div>
+    description.id =
+      'qt-objectif-description';
 
-            </div>
+    const cap =
+      creerElement(
+        'div',
+        'qt-cap',
+        '🚀 Cap actuel : Initialisation...'
+      );
 
-          </div>
+    cap.id =
+      'qt-cap-actuel';
 
-        </div>
+    entetePrincipal.appendChild(
+      titreObjectif
+    );
 
-      </main>
-    `;
+    entetePrincipal.appendChild(
+      description
+    );
+
+    entetePrincipal.appendChild(
+      cap
+    );
+
+    const contenu =
+      creerElement(
+        'div',
+        'qt-contenu'
+      );
+
+    const synthese =
+      creerElement(
+        'div',
+        'qt-synthese'
+      );
+
+    /* Synthèse */
+
+    const sectionSynthese =
+      creerElement(
+        'div',
+        'qt-section qt-section-synthese'
+      );
+
+    sectionSynthese.appendChild(
+      creerElement(
+        'h2',
+        '',
+        'Synthèse cognitive'
+      )
+    );
+
+    const corpsSynthese =
+      creerElement(
+        'div',
+        'qt-synthese-corps'
+      );
+
+    corpsSynthese.id =
+      'qt-synthese-corps';
+
+    sectionSynthese.appendChild(
+      corpsSynthese
+    );
+
+    /* Hypothèses */
+
+    const sectionHypotheses =
+      creerElement(
+        'div',
+        'qt-section qt-section-hypotheses'
+      );
+
+    sectionHypotheses.appendChild(
+      creerElement(
+        'h2',
+        '',
+        'Hypothèses actives'
+      )
+    );
+
+    const listeHypotheses =
+      creerElement(
+        'div'
+      );
+
+    listeHypotheses.id =
+      'qt-hypotheses-liste';
+
+    listeHypotheses.appendChild(
+      creerElement(
+        'p',
+        'qt-vide',
+        'Aucune hypothèse pour le moment.'
+      )
+    );
+
+    sectionHypotheses.appendChild(
+      listeHypotheses
+    );
+
+    /* Abandonnées */
+
+    const sectionAbandonne =
+      creerElement(
+        'div',
+        'qt-section qt-section-abandonne'
+      );
+
+    sectionAbandonne.appendChild(
+      creerElement(
+        'h2',
+        '',
+        'Pistes écartées & conditions de réactivation'
+      )
+    );
+
+    const listeAbandonne =
+      creerElement(
+        'div'
+      );
+
+    listeAbandonne.id =
+      'qt-abandonne-liste';
+
+    listeAbandonne.appendChild(
+      creerElement(
+        'p',
+        'qt-vide',
+        'Aucun point abandonné pour le moment.'
+      )
+    );
+
+    sectionAbandonne.appendChild(
+      listeAbandonne
+    );
+
+    synthese.appendChild(
+      sectionSynthese
+    );
+
+    synthese.appendChild(
+      sectionHypotheses
+    );
+
+    synthese.appendChild(
+      sectionAbandonne
+    );
+
+    contenu.appendChild(
+      synthese
+    );
+
+    principal.appendChild(
+      entetePrincipal
+    );
+
+    principal.appendChild(
+      contenu
+    );
+
+    document.body.appendChild(barre);
+    document.body.appendChild(principal);
 
     initialiserBoutonRepli();
   }
 
+  /* ===========================================================
+     BOUTON REPLI
+     =========================================================== */
+
   function initialiserBoutonRepli() {
-    const barre = document.getElementById('qt-barre-laterale');
-    const bouton = document.getElementById('qt-bouton-repli');
+    const barre =
+      document.getElementById(
+        'qt-barre-laterale'
+      );
 
-    if (!barre || !bouton) return;
+    const bouton =
+      document.getElementById(
+        'qt-bouton-repli'
+      );
 
-    bouton.addEventListener('click', () => {
+    if (!barre || !bouton) {
+      return;
+    }
 
-      const estRepliee = barre.classList.toggle('repliee');
+    bouton.addEventListener(
+      'click',
+      function () {
 
-      if (estRepliee) {
+        const repliee =
+          barre.classList.toggle(
+            'repliee'
+          );
 
-        bouton.textContent = '›';
+        if (repliee) {
 
-        bouton.setAttribute(
-          'aria-label',
-          'Développer la barre latérale'
-        );
+          bouton.textContent = '›';
 
-        bouton.setAttribute(
-          'title',
-          'Développer la barre latérale'
-        );
+          bouton.setAttribute(
+            'aria-label',
+            'Développer la barre latérale'
+          );
 
-      } else {
+          bouton.title =
+            'Développer la barre latérale';
 
-        bouton.textContent = '‹';
+          masquerTooltip();
 
-        bouton.setAttribute(
-          'aria-label',
-          'Réduire la barre latérale'
-        );
+        } else {
 
-        bouton.setAttribute(
-          'title',
-          'Réduire la barre latérale'
-        );
+          bouton.textContent = '‹';
+
+          bouton.setAttribute(
+            'aria-label',
+            'Réduire la barre latérale'
+          );
+
+          bouton.title =
+            'Réduire la barre latérale';
+        }
       }
-    });
+    );
   }
+
+  /* ===========================================================
+     SIDEBAR
+     =========================================================== */
 
   function afficherBarreLaterale(donnees) {
-    const listeEl = document.getElementById('qt-accordeon-liste');
-    const compteurEl = document.getElementById('qt-ad-compteur');
+    const liste =
+      document.getElementById(
+        'qt-accordeon-liste'
+      );
 
-    const aDiscuter = donnees.aDiscuter || [];
+    const compteur =
+      document.getElementById(
+        'qt-ad-compteur'
+      );
 
-    compteurEl.textContent = aDiscuter.length;
+    if (!liste || !compteur) {
+      return;
+    }
 
-    listeEl.innerHTML = '';
+    const aDiscuter =
+      tableauSecurise(
+        donnees.aDiscuter
+      );
 
-    aDiscuter.forEach((element, index) => {
+    compteur.textContent =
+      String(aDiscuter.length);
 
-      const div = document.createElement('div');
+    liste.replaceChildren();
 
-      div.className =
-        'qt-accordeon-element' +
-        (index === 0 ? ' ouvert' : '');
+    aDiscuter.forEach(
+      function (element, index) {
 
-      div.dataset.id = element.id;
+        const objet =
+          objetSecurise(element);
 
-      const titre = element.titre || '';
-      const raison = element.raison || '';
-      const consequence = element.consequence || '';
+        const id =
+          valeurTexte(
+            objet.id,
+            `ad${index + 1}`
+          );
 
-      const identifiant = echapperHTML(element.id);
-      const titreHTML = echapperHTML(titre);
-      const raisonHTML = echapperHTML(raison);
-      const consequenceHTML = echapperHTML(consequence);
+        const titre =
+          valeurTexte(
+            objet.titre,
+            'Sans titre'
+          );
 
-      div.innerHTML = `
-        <div class="qt-accordeon-entete">
+        const raison =
+          valeurTexte(
+            objet.raison,
+            'Non précisé'
+          );
 
-          <span
-            class="qt-accordeon-identifiant"
-            title="${echapperHTML(obtenirInfobulleTag(element.id))}"
-            data-tooltip="${titreHTML}"
-          >
-            ${identifiant}
-          </span>
+        const consequence =
+          valeurTexte(
+            objet.consequence,
+            'Non précisée'
+          );
 
-          <span class="qt-accordeon-titre">
-            ${titreHTML}
-          </span>
+        const item =
+          creerElement(
+            'div',
+            'qt-accordeon-element'
+          );
 
-          <span class="qt-accordeon-chevron">
-            ▶
-          </span>
+        if (index === 0) {
+          item.classList.add('ouvert');
+        }
 
-        </div>
+        /*
+         * L'ID est conservé comme donnée textuelle.
+         * Il n'est jamais utilisé comme HTML.
+         */
+        item.dataset.id = id;
 
-        <div class="qt-accordeon-corps">
+        const entete =
+          creerElement(
+            'div',
+            'qt-accordeon-entete'
+          );
 
-          <p>
-            <strong>Pourquoi :</strong>
-            ${raisonHTML}
-          </p>
+        const identifiant =
+          creerElement(
+            'span',
+            'qt-accordeon-identifiant',
+            id
+          );
 
-          <p>
-            <strong>Conséquence :</strong>
-            ${consequenceHTML}
-          </p>
+        identifiant.title =
+          obtenirInfobulleTag(id);
 
-        </div>
-      `;
+        const titreElement =
+          creerElement(
+            'span',
+            'qt-accordeon-titre',
+            titre
+          );
 
-      const entete =
-        div.querySelector('.qt-accordeon-entete');
+        const chevron =
+          creerElement(
+            'span',
+            'qt-accordeon-chevron',
+            '▶'
+          );
 
-      entete.addEventListener('click', () => {
-        div.classList.toggle('ouvert');
-      });
+        entete.appendChild(
+          identifiant
+        );
 
-      listeEl.appendChild(div);
-    });
+        entete.appendChild(
+          titreElement
+        );
+
+        entete.appendChild(
+          chevron
+        );
+
+        const corps =
+          creerElement(
+            'div',
+            'qt-accordeon-corps'
+          );
+
+        const paragrapheRaison =
+          document.createElement('p');
+
+        const labelRaison =
+          document.createElement('strong');
+
+        labelRaison.textContent =
+          'Pourquoi :';
+
+        paragrapheRaison.appendChild(
+          labelRaison
+        );
+
+        paragrapheRaison.appendChild(
+          document.createTextNode(
+            ` ${raison}`
+          )
+        );
+
+        const paragrapheConsequence =
+          document.createElement('p');
+
+        const labelConsequence =
+          document.createElement('strong');
+
+        labelConsequence.textContent =
+          'Conséquence :';
+
+        paragrapheConsequence.appendChild(
+          labelConsequence
+        );
+
+        paragrapheConsequence.appendChild(
+          document.createTextNode(
+            ` ${consequence}`
+          )
+        );
+
+        corps.appendChild(
+          paragrapheRaison
+        );
+
+        corps.appendChild(
+          paragrapheConsequence
+        );
+
+        item.appendChild(
+          entete
+        );
+
+        item.appendChild(
+          corps
+        );
+
+        /* =====================================================
+           ACCORDEON
+           ===================================================== */
+
+        entete.addEventListener(
+          'click',
+          function () {
+
+            const barre =
+              document.getElementById(
+                'qt-barre-laterale'
+              );
+
+            /*
+             * En mode réduit, le clic sur l'ID
+             * n'ouvre pas visuellement l'accordéon.
+             * On ne modifie donc pas l'état.
+             */
+            if (
+              barre &&
+              barre.classList.contains('repliee')
+            ) {
+              return;
+            }
+
+            item.classList.toggle(
+              'ouvert'
+            );
+          }
+        );
+
+        /* =====================================================
+           TOOLTIP EN MODE RÉDUIT
+           ===================================================== */
+
+        identifiant.addEventListener(
+          'mouseenter',
+          function () {
+
+            const barre =
+              document.getElementById(
+                'qt-barre-laterale'
+              );
+
+            if (
+              !barre ||
+              !barre.classList.contains('repliee')
+            ) {
+              return;
+            }
+
+            afficherTooltip(
+              identifiant,
+              titre
+            );
+          }
+        );
+
+        identifiant.addEventListener(
+          'mouseleave',
+          masquerTooltip
+        );
+
+        liste.appendChild(
+          item
+        );
+      }
+    );
   }
+
+  /* ===========================================================
+     SYNTHÈSE
+     =========================================================== */
 
   function afficherSynthese(donnees) {
 
-    // =========================================================
-    // OBJECTIF
-    // =========================================================
+    const objectif =
+      objetSecurise(
+        donnees.objectif
+      );
 
-    document.getElementById('qt-objectif-titre').textContent =
-      (donnees.objectif && donnees.objectif.titre) ||
-      'Sans titre';
+    const titre =
+      valeurTexte(
+        objectif.titre,
+        'Sans titre'
+      );
 
-    document.getElementById('qt-objectif-description').textContent =
-      (donnees.objectif && donnees.objectif.description) ||
-      '';
+    const description =
+      valeurTexte(
+        objectif.description,
+        ''
+      );
 
-    // =========================================================
-    // CAP ACTUEL
-    // =========================================================
+    const titreElement =
+      document.getElementById(
+        'qt-objectif-titre'
+      );
 
-    const resume = donnees.resume || '';
+    const descriptionElement =
+      document.getElementById(
+        'qt-objectif-description'
+      );
 
-    const lignes = resume.split(/\n/);
-
-    const ligneCap =
-      lignes.find(l => l.includes('CAP ACTUEL')) ||
-      '🚀 CAP ACTUEL : En attente...';
-
-    document.getElementById('qt-cap-actuel').textContent =
-      ligneCap;
-
-    // =========================================================
-    // SYNTHÈSE
-    // =========================================================
-
-    const corpsEl =
-      document.getElementById('qt-synthese-corps');
-
-    let html = '';
-
-    const discute = donnees.discute || [];
-
-    if (discute.length > 0) {
-
-      html += `
-        <p>
-          <strong>Points validés :</strong>
-        </p>
-      `;
-
-      discute.forEach(dis => {
-
-        const titre = dis.titre || '';
-        const raison = dis.raison || '';
-        const consequence = dis.consequence || '';
-
-        html += `
-          <p>
-            • ${genererTagHTML(dis.id)}
-            <strong>${echapperHTML(titre)}</strong>.
-            ${echapperHTML(raison)}
-            <em>Conséquence :</em>
-            ${echapperHTML(consequence)}
-          </p>
-        `;
-      });
+    if (titreElement) {
+      titreElement.textContent =
+        titre;
     }
 
-    corpsEl.innerHTML =
-      html ||
-      '<p class="qt-vide">Initialisation de la réflexion en cours...</p>';
+    if (descriptionElement) {
+      descriptionElement.textContent =
+        description;
+    }
 
-    // =========================================================
-    // HYPOTHÈSES
-    // =========================================================
+    /* =========================================================
+       CAP
+       ========================================================= */
 
-    const listeHypEl =
-      document.getElementById('qt-hypotheses-liste');
+    const resume =
+      valeurTexte(
+        donnees.resume,
+        ''
+      );
+
+    const lignes =
+      resume.split(/\n/);
+
+    const ligneCap =
+      lignes.find(
+        function (ligne) {
+          return ligne.includes(
+            'CAP ACTUEL'
+          );
+        }
+      ) ||
+      '🚀 CAP ACTUEL : En attente...';
+
+    const cap =
+      document.getElementById(
+        'qt-cap-actuel'
+      );
+
+    if (cap) {
+      cap.textContent =
+        ligneCap;
+    }
+
+    /* =========================================================
+       SYNTHÈSE
+       ========================================================= */
+
+    const corps =
+      document.getElementById(
+        'qt-synthese-corps'
+      );
+
+    if (!corps) {
+      return;
+    }
+
+    corps.replaceChildren();
+
+    const discute =
+      tableauSecurise(
+        donnees.discute
+      );
+
+    if (discute.length === 0) {
+
+      corps.appendChild(
+        creerElement(
+          'p',
+          'qt-vide',
+          'Initialisation de la réflexion en cours...'
+        )
+      );
+
+    } else {
+
+      const intro =
+        document.createElement('p');
+
+      const strong =
+        document.createElement('strong');
+
+      strong.textContent =
+        'Points validés :';
+
+      intro.appendChild(
+        strong
+      );
+
+      corps.appendChild(
+        intro
+      );
+
+      discute.forEach(
+        function (element) {
+
+          const objet =
+            objetSecurise(element);
+
+          const id =
+            valeurTexte(
+              objet.id,
+              ''
+            );
+
+          const titre =
+            valeurTexte(
+              objet.titre,
+              ''
+            );
+
+          const raison =
+            valeurTexte(
+              objet.raison,
+              ''
+            );
+
+          const consequence =
+            valeurTexte(
+              objet.consequence,
+              ''
+            );
+
+          const paragraphe =
+            document.createElement('p');
+
+          paragraphe.appendChild(
+            document.createTextNode('• ')
+          );
+
+          paragraphe.appendChild(
+            genererTagDOM(id)
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(' ')
+          );
+
+          const titreFort =
+            document.createElement('strong');
+
+          titreFort.textContent =
+            titre;
+
+          paragraphe.appendChild(
+            titreFort
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(
+              `. ${raison} `
+            )
+          );
+
+          const label =
+            document.createElement('em');
+
+          label.textContent =
+            'Conséquence :';
+
+          paragraphe.appendChild(
+            label
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(
+              ` ${consequence}`
+            )
+          );
+
+          corps.appendChild(
+            paragraphe
+          );
+        }
+      );
+    }
+
+    /* =========================================================
+       HYPOTHÈSES
+       ========================================================= */
+
+    const listeHyp =
+      document.getElementById(
+        'qt-hypotheses-liste'
+      );
+
+    if (!listeHyp) {
+      return;
+    }
+
+    listeHyp.replaceChildren();
 
     const hypotheses =
-      donnees.hypotheses || [];
+      tableauSecurise(
+        donnees.hypotheses
+      );
 
     if (hypotheses.length === 0) {
 
-      listeHypEl.innerHTML =
-        '<p class="qt-vide">Aucune hypothèse pour le moment.</p>';
+      listeHyp.appendChild(
+        creerElement(
+          'p',
+          'qt-vide',
+          'Aucune hypothèse pour le moment.'
+        )
+      );
 
     } else {
 
-      let htmlHyp = '';
+      hypotheses.forEach(
+        function (element) {
 
-      hypotheses.forEach(h => {
+          const objet =
+            objetSecurise(element);
 
-        const titre = h.titre || '';
-        const raison = h.raison || '—';
-        const consequence = h.consequence || '—';
+          const paragraphe =
+            document.createElement('p');
 
-        htmlHyp += `
-          <p>
-            • ${genererTagHTML(h.id)}
-            <strong>${echapperHTML(titre)}</strong>.
-            ${echapperHTML(raison)}
-            <em>Si faux :</em>
-            ${echapperHTML(consequence)}
-          </p>
-        `;
-      });
+          const id =
+            valeurTexte(
+              objet.id,
+              ''
+            );
 
-      listeHypEl.innerHTML = htmlHyp;
+          const titre =
+            valeurTexte(
+              objet.titre,
+              ''
+            );
+
+          const raison =
+            valeurTexte(
+              objet.raison,
+              '—'
+            );
+
+          const consequence =
+            valeurTexte(
+              objet.consequence,
+              '—'
+            );
+
+          paragraphe.appendChild(
+            document.createTextNode('• ')
+          );
+
+          paragraphe.appendChild(
+            genererTagDOM(id)
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(' ')
+          );
+
+          const titreFort =
+            document.createElement('strong');
+
+          titreFort.textContent =
+            titre;
+
+          paragraphe.appendChild(
+            titreFort
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(
+              `. ${raison} `
+            )
+          );
+
+          const label =
+            document.createElement('em');
+
+          label.textContent =
+            'Si faux :';
+
+          paragraphe.appendChild(
+            label
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(
+              ` ${consequence}`
+            )
+          );
+
+          listeHyp.appendChild(
+            paragraphe
+          );
+        }
+      );
     }
 
-    // =========================================================
-    // PISTES ÉCARTÉES
-    // =========================================================
+    /* =========================================================
+       PISTES ABANDONNÉES
+       ========================================================= */
 
-    const listeAbandonneesEl =
-      document.getElementById('qt-abandonne-liste');
+    const listeAbandonne =
+      document.getElementById(
+        'qt-abandonne-liste'
+      );
+
+    if (!listeAbandonne) {
+      return;
+    }
+
+    listeAbandonne.replaceChildren();
 
     const abandonne =
-      donnees.abandonne || [];
+      tableauSecurise(
+        donnees.abandonne
+      );
 
     if (abandonne.length === 0) {
 
-      listeAbandonneesEl.innerHTML =
-        '<p class="qt-vide">Aucun point abandonné pour le moment.</p>';
+      listeAbandonne.appendChild(
+        creerElement(
+          'p',
+          'qt-vide',
+          'Aucun point abandonné pour le moment.'
+        )
+      );
 
     } else {
 
-      let htmlAb = '';
+      abandonne.forEach(
+        function (element) {
 
-      abandonne.forEach(p => {
+          const objet =
+            objetSecurise(element);
 
-        const titre = p.titre || '';
-        const raison = p.raison || 'Non précisé';
-        const condition = p.condition || '—';
+          const id =
+            valeurTexte(
+              objet.id,
+              ''
+            );
 
-        htmlAb += `
-          <p>
-            • ${genererTagHTML(p.id)}
-            <strong>${echapperHTML(titre)}</strong>.
-            ${echapperHTML(raison)}
-            <em>Réactivation :</em>
-            ${echapperHTML(condition)}
-          </p>
-        `;
-      });
+          const titre =
+            valeurTexte(
+              objet.titre,
+              ''
+            );
 
-      listeAbandonneesEl.innerHTML = htmlAb;
+          const raison =
+            valeurTexte(
+              objet.raison,
+              'Non précisé'
+            );
+
+          const condition =
+            valeurTexte(
+              objet.condition,
+              '—'
+            );
+
+          const paragraphe =
+            document.createElement('p');
+
+          paragraphe.appendChild(
+            document.createTextNode('• ')
+          );
+
+          paragraphe.appendChild(
+            genererTagDOM(id)
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(' ')
+          );
+
+          const titreFort =
+            document.createElement('strong');
+
+          titreFort.textContent =
+            titre;
+
+          paragraphe.appendChild(
+            titreFort
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(
+              `. ${raison} `
+            )
+          );
+
+          const label =
+            document.createElement('em');
+
+          label.textContent =
+            'Réactivation :';
+
+          paragraphe.appendChild(
+            label
+          );
+
+          paragraphe.appendChild(
+            document.createTextNode(
+              ` ${condition}`
+            )
+          );
+
+          listeAbandonne.appendChild(
+            paragraphe
+          );
+        }
+      );
     }
   }
+
+  /* ===========================================================
+     INITIALISATION
+     =========================================================== */
 
   function initialiser() {
 
     const donnees =
       window.QTHOUGHTS_DATA;
 
-    if (!donnees) {
+    if (
+      !donnees ||
+      typeof donnees !== 'object' ||
+      Array.isArray(donnees)
+    ) {
 
       console.warn(
-        'Q-Thoughts: window.QTHOUGHTS_DATA introuvable.'
+        'Q-Thoughts : QTHOUGHTS_DATA introuvable ou invalide.'
       );
 
       return;
     }
 
-    injecterDisposition();
+    try {
 
-    afficherBarreLaterale(donnees);
+      injecterDisposition();
 
-    afficherSynthese(donnees);
+      afficherBarreLaterale(
+        donnees
+      );
+
+      afficherSynthese(
+        donnees
+      );
+
+    } catch (erreur) {
+
+      /*
+       * Une donnée mal formée ne doit pas
+       * faire disparaître silencieusement
+       * toute l'application.
+       */
+
+      console.error(
+        'Q-Thoughts : erreur lors du rendu.',
+        erreur
+      );
+    }
   }
 
-  if (document.readyState === 'loading') {
+  /* ===========================================================
+     DÉMARRAGE
+     =========================================================== */
+
+  if (
+    document.readyState === 'loading'
+  ) {
 
     document.addEventListener(
       'DOMContentLoaded',
-      initialiser
+      initialiser,
+      { once: true }
     );
 
   } else {
