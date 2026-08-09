@@ -3,6 +3,9 @@ Q-Thoughts est un espace de mémoire partagé qui permet à l'humain et à l'IA 
 Métaphore : Q-thoughts fait référence aux Q-paths ou quantic paths c'est à dire à l'existence de chemins différents que la physique quantique autorise alors que les humains et les IAs ont tendance à élaguer dans prévenir des chemins potentiellement fructueux. Q-thoughts vient alors combler cette lacune et permettre cette superposition de chemins cognitifs sans les oublier.
 Explorer l'ensemble des chemins revient à générer un effondrement du paquet des alternatives cognitives.
 
+Principe :
+Q-Thoughts est le lieu où l'humain et l'IA se corrigent mutuellement. L'humain maintient la pertinence. L'IA maintient la cohérence et veille à interroger l'humain sur la pertinence.
+
 Contraintes :
 Q-Thoughts doit évoluer mais sans jamais perdre de vue que la valeur cognitive créée par l'outil est conditionnée par la simplicité et l'absence de cout cognitif additionnel lié à la mise à jour de l'état cognitif.
 
