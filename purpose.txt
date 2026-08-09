@@ -15,5 +15,9 @@ Q-Thoughts conserve les éléments qui structurent ou peuvent influencer la réf
 Mais Q-Thoughts ne doit pas seulement préserver ce qui a été décidé ou abandonné. Il doit surtout préserver ce qui risque de disparaître de la réflexion alors que sa valeur future n'est pas encore déterminée.
 Les éléments conservés ne sont donc pas nécessairement ceux qui sont jugés importants à cet instant, mais ceux dont la disparition pourrait appauvrir une réflexion ultérieure.
 
+2 Process d'utilisation possible à définir au départ :
+- Mode focalisé : L'IA conduit la discussion comme elle est nativement programmé à le faire
+- Mode exploration : L'IA essaie autant que possible de ne pas orienter la discussion vers ce que l'IA considère comme pertinent, mais l'IA laisse la conversation humaine–IA tendre naturellement vers la perte des pistes sans intérêt 
+
 Q-Thoughts doit ainsi permettre de sortir un élément du chemin de réflexion actif sans le faire disparaître, afin qu'il puisse être réévalué ou réactivé lorsque le contexte le rend à nouveau pertinent.
 
